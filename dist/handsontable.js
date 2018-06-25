@@ -21,7 +21,7 @@
  * UNINTERRUPTED OR ERROR FREE.
  * 
  * Version: 5.0.0
- * Release date: 11/07/2018 (built at 11/07/2018 12:11:05)
+ * Release date: 11/07/2018 (built at 18/07/2018 11:57:19)
  */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
@@ -15955,10 +15955,13 @@ function Core(rootElement, userSettings) {
    * @memberof Core#
    * @function loadData
    * @param {Array} data Array of arrays or array of objects containing data.
+   * @param {Boolean} deferRender Defers the render until a later point in time. If set to true must call render() yourself.
    * @fires Hooks#afterLoadData
    * @fires Hooks#afterChange
    */
   this.loadData = function (data) {
+    var deferRender = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
+
     if (Array.isArray(priv.settings.dataSchema)) {
       instance.dataType = 'array';
     } else if ((0, _function.isFunction)(priv.settings.dataSchema)) {
@@ -16028,7 +16031,9 @@ function Core(rootElement, userSettings) {
       priv.firstRun = [null, 'loadData'];
     } else {
       instance.runHooks('afterChange', null, 'loadData');
-      instance.render();
+      if (!deferRender) {
+        instance.render();
+      }
     }
     priv.isPopulated = true;
 
@@ -32505,6 +32510,10 @@ var jsonpatch;
             generate(observer);
             clearTimeout(observer.next);
             removeObserverFromMirror(mirror, observer);
+            // https://github.com/handsontable/handsontable/pull/4710
+            if (mirror.observers.length === 0) {
+                beforeDict.splice(beforeDict.indexOf(mirror), 1);
+            }
             if (typeof window !== 'undefined') {
                 if (window.removeEventListener) {
                     window.removeEventListener('mousedown', fastCheck);
@@ -34055,7 +34064,7 @@ function _interopRequireWildcard(obj) { if (obj && obj.__esModule) { return obj;
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-_handsontable2.default.baseVersion = '5.0.0';
+_handsontable2.default.baseVersion = 'git://github.com/jeremy-smith-maco/handsontable.git';
 
 exports.default = _handsontable2.default;
 
@@ -34697,11 +34706,11 @@ Handsontable.DefaultSettings = _defaultSettings2.default;
 Handsontable.EventManager = _eventManager2.default;
 Handsontable._getListenersCounter = _eventManager.getListenersCounter; // For MemoryLeak tests
 
-Handsontable.buildDate = '11/07/2018 12:11:05';
+Handsontable.buildDate = '18/07/2018 11:57:19';
 Handsontable.packageName = 'handsontable-pro';
 Handsontable.version = '5.0.0';
 
-var baseVersion = '5.0.0';
+var baseVersion = 'git://github.com/jeremy-smith-maco/handsontable.git';
 
 if (baseVersion) {
   Handsontable.baseVersion = baseVersion;
@@ -59462,8 +59471,9 @@ var Search = function (_BasePlugin) {
           var cellData = _this4.hot.getDataAtCell(rowIndex, colIndex);
           var cellProperties = _this4.hot.getCellMeta(rowIndex, colIndex);
           var cellCallback = cellProperties.search.callback || callback;
+          // https://github.com/handsontable/handsontable/issues/4944
           var cellQueryMethod = cellProperties.search.queryMethod || queryMethod;
-          var testResult = cellQueryMethod(queryStr, cellData);
+          var testResult = cellQueryMethod(queryStr, cellData, colIndex);
 
           if (testResult) {
             var singleResult = {
