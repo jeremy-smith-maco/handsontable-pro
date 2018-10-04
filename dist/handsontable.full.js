@@ -21,7 +21,7 @@
  * UNINTERRUPTED OR ERROR FREE.
  * 
  * Version: 6.0.1
- * Release date: 02/10/2018 (built at 04/10/2018 09:35:25)
+ * Release date: 02/10/2018 (built at 04/10/2018 15:18:04)
  */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
@@ -4072,7 +4072,7 @@ var REGISTERED_HOOKS = [
  * @param {CellCoords} end Object containing information about last filled cell: `{row: 4, col: 1}`.
  * @param {Array[]} data 2D array containing information about fill pattern: `[["1", "Ted"], ["1", "John"]]`.
  */
-'beforeAutofill',
+'beforeAutofill', 'afterAutofill',
 
 /**
  * Fired before aligning the cell contents.
@@ -56662,7 +56662,7 @@ Handsontable.DefaultSettings = _defaultSettings2.default;
 Handsontable.EventManager = _eventManager2.default;
 Handsontable._getListenersCounter = _eventManager.getListenersCounter; // For MemoryLeak tests
 
-Handsontable.buildDate = '04/10/2018 09:35:25';
+Handsontable.buildDate = '04/10/2018 15:18:04';
 Handsontable.packageName = 'handsontable-pro';
 Handsontable.version = '6.0.1';
 
@@ -67684,6 +67684,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
 _pluginHooks2.default.getSingleton().register('modifyAutofillRange');
 _pluginHooks2.default.getSingleton().register('beforeAutofill');
+_pluginHooks2.default.getSingleton().register('afterAutofill');
 
 var INSERT_ROW_ALTER_ACTION_NAME = 'insert_row';
 var INTERVAL_FOR_ADDING_ROW = 200;
@@ -67908,6 +67909,7 @@ var Autofill = function (_BasePlugin) {
         this.hot.populateFromArray(startOfDragCoords.row, startOfDragCoords.col, fillData, endOfDragCoords.row, endOfDragCoords.col, this.pluginName + '.fill', null, directionOfDrag, deltas);
 
         this.setSelection(cornersOfSelectionAndDragAreas);
+        this.hot.runHooks('afterAutofill', startOfDragCoords, endOfDragCoords, selectionData);
       } else {
         // reset to avoid some range bug
         this.hot._refreshBorders();
