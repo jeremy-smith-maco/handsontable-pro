@@ -21,7 +21,7 @@
  * UNINTERRUPTED OR ERROR FREE.
  * 
  * Version: 6.0.1
- * Release date: 02/10/2018 (built at 04/10/2018 15:18:04)
+ * Release date: 02/10/2018 (built at 05/10/2018 09:59:08)
  */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
@@ -14268,8 +14268,8 @@ TextEditor.prototype.refreshDimensions = function () {
 
   var currentOffset = (0, _element.offset)(this.TD);
   var containerOffset = (0, _element.offset)(this.instance.rootElement);
-  var scrollableContainerTop = this.instance.view.wt.wtOverlays.topOverlay.mainTableScrollableElement;
-  var scrollableContainerLeft = this.instance.view.wt.wtOverlays.leftOverlay.mainTableScrollableElement;
+  var scrollableContainerTop = this.instance.view.wt.wtOverlays.topOverlay.holder;
+  var scrollableContainerLeft = this.instance.view.wt.wtOverlays.leftOverlay.holder;
   var totalRowsCount = this.instance.countRows();
   var containerScrollTop = scrollableContainerTop !== window ? scrollableContainerTop.scrollTop : 0;
   var containerScrollLeft = scrollableContainerLeft !== window ? scrollableContainerLeft.scrollLeft : 0;
@@ -56662,7 +56662,7 @@ Handsontable.DefaultSettings = _defaultSettings2.default;
 Handsontable.EventManager = _eventManager2.default;
 Handsontable._getListenersCounter = _eventManager.getListenersCounter; // For MemoryLeak tests
 
-Handsontable.buildDate = '04/10/2018 15:18:04';
+Handsontable.buildDate = '05/10/2018 09:59:08';
 Handsontable.packageName = 'handsontable-pro';
 Handsontable.version = '6.0.1';
 
