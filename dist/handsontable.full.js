@@ -21,7 +21,7 @@
  * UNINTERRUPTED OR ERROR FREE.
  * 
  * Version: 6.0.1
- * Release date: 02/10/2018 (built at 05/10/2018 09:59:08)
+ * Release date: 02/10/2018 (built at 08/10/2018 09:19:30)
  */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
@@ -36055,13 +36055,12 @@ function Core(rootElement, userSettings) {
     var isNumericData = function isNumericData(value) {
       return value.length > 0 && /^-?[\d\s]*(\.|,)?\d*$/.test(value);
     };
-    var toSplice = [];
 
     waitingForValidator.onQueueEmpty = resolve;
 
-    for (var i = 0; i < changes.length; i++) {
+    for (var i = changes.length - 1; i >= 0; i--) {
       if (changes[i] === null) {
-        toSplice.push(i);
+        changes.splice(i, 1);
       } else {
         var _changes$i = _slicedToArray(changes[i], 4),
             row = _changes$i[0],
@@ -36084,7 +36083,7 @@ function Core(rootElement, userSettings) {
                 throw new Error('Validation error: result is not boolean');
               }
               if (result === false && cellPropertiesReference.allowInvalid === false) {
-                toSplice.push(index); // cancel the change
+                changes.splice(index, 1); // cancel the change
                 cellPropertiesReference.valid = true; // we cancelled the change, so cell value is still valid
                 var cell = instance.getCell(cellPropertiesReference.visualRow, cellPropertiesReference.visualCol);
                 (0, _element.removeClass)(cell, instance.getSettings().invalidCellClassName);
@@ -36095,10 +36094,6 @@ function Core(rootElement, userSettings) {
           }(i, cellProperties), source);
         }
       }
-    }
-    for (var _i = toSplice.length - 1; _i >= 0; _i--) {
-      var index = toSplice[_i];
-      changes.splice(index, 1);
     }
     waitingForValidator.checkIfQueueIsEmpty();
 
@@ -56662,7 +56657,7 @@ Handsontable.DefaultSettings = _defaultSettings2.default;
 Handsontable.EventManager = _eventManager2.default;
 Handsontable._getListenersCounter = _eventManager.getListenersCounter; // For MemoryLeak tests
 
-Handsontable.buildDate = '05/10/2018 09:59:08';
+Handsontable.buildDate = '08/10/2018 09:19:30';
 Handsontable.packageName = 'handsontable-pro';
 Handsontable.version = '6.0.1';
 
