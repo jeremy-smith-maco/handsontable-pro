@@ -21,7 +21,7 @@
  * UNINTERRUPTED OR ERROR FREE.
  * 
  * Version: 6.0.1
- * Release date: 02/10/2018 (built at 08/10/2018 09:19:30)
+ * Release date: 02/10/2018 (built at 08/10/2018 10:00:32)
  */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
@@ -36055,12 +36055,13 @@ function Core(rootElement, userSettings) {
     var isNumericData = function isNumericData(value) {
       return value.length > 0 && /^-?[\d\s]*(\.|,)?\d*$/.test(value);
     };
+    var toSplice = [];
 
     waitingForValidator.onQueueEmpty = resolve;
 
-    for (var i = changes.length - 1; i >= 0; i--) {
+    for (var i = 0; i < changes.length; i++) {
       if (changes[i] === null) {
-        changes.splice(i, 1);
+        toSplice.push(i);
       } else {
         var _changes$i = _slicedToArray(changes[i], 4),
             row = _changes$i[0],
@@ -36083,7 +36084,7 @@ function Core(rootElement, userSettings) {
                 throw new Error('Validation error: result is not boolean');
               }
               if (result === false && cellPropertiesReference.allowInvalid === false) {
-                changes.splice(index, 1); // cancel the change
+                toSplice.push(index); // cancel the change
                 cellPropertiesReference.valid = true; // we cancelled the change, so cell value is still valid
                 var cell = instance.getCell(cellPropertiesReference.visualRow, cellPropertiesReference.visualCol);
                 (0, _element.removeClass)(cell, instance.getSettings().invalidCellClassName);
@@ -36100,6 +36101,10 @@ function Core(rootElement, userSettings) {
     function resolve() {
       var beforeChangeResult = void 0;
 
+      for (var _i = toSplice.length - 1; _i >= 0; _i--) {
+        var index = toSplice[_i];
+        changes.splice(index, 1);
+      }
       if (changes.length) {
         beforeChangeResult = instance.runHooks('beforeChange', changes, source || 'edit');
         if ((0, _function.isFunction)(beforeChangeResult)) {
@@ -56657,7 +56662,7 @@ Handsontable.DefaultSettings = _defaultSettings2.default;
 Handsontable.EventManager = _eventManager2.default;
 Handsontable._getListenersCounter = _eventManager.getListenersCounter; // For MemoryLeak tests
 
-Handsontable.buildDate = '08/10/2018 09:19:30';
+Handsontable.buildDate = '08/10/2018 10:00:32';
 Handsontable.packageName = 'handsontable-pro';
 Handsontable.version = '6.0.1';
 
