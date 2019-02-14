@@ -21,7 +21,7 @@
  * UNINTERRUPTED OR ERROR FREE.
  * 
  * Version: 6.2.2
- * Release date: 19/12/2018 (built at 19/12/2018 13:27:54)
+ * Release date: 19/12/2018 (built at 14/02/2019 11:44:43)
  */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
@@ -4124,7 +4124,7 @@ var REGISTERED_HOOKS = [
  * @param {CellCoords} end Object containing information about last filled cell: `{row: 4, col: 1}`.
  * @param {Array[]} data 2D array containing information about fill pattern: `[["1", "Ted"], ["1", "John"]]`.
  */
-'beforeAutofill',
+'beforeAutofill', 'afterAutofill',
 /**
  * Fired before aligning the cell contents.
  *
@@ -14677,11 +14677,12 @@ function Core(rootElement, userSettings) {
       return value.length > 0 && /^\s*[+-.]?\s*(?:(?:\d+(?:(\.|,)\d+)?(?:e[+-]?\d+)?)|(?:0x[a-f\d]+))\s*$/.test(value);
     };
 
+    var toSplice = [];
     waitingForValidator.onQueueEmpty = resolve;
 
-    for (var i = changes.length - 1; i >= 0; i--) {
+    for (var i = 0; i < changes.length; i++) {
       if (changes[i] === null) {
-        changes.splice(i, 1);
+        toSplice.push(i);
       } else {
         var _changes$i = _slicedToArray(changes[i], 4),
             row = _changes$i[0],
@@ -14706,7 +14707,7 @@ function Core(rootElement, userSettings) {
               }
 
               if (result === false && cellPropertiesReference.allowInvalid === false) {
-                changes.splice(index, 1); // cancel the change
+                toSplice.push(index); // cancel the change
 
                 cellPropertiesReference.valid = true; // we cancelled the change, so cell value is still valid
 
@@ -14729,6 +14730,11 @@ function Core(rootElement, userSettings) {
 
     function resolve() {
       var beforeChangeResult;
+
+      for (var _i2 = toSplice.length - 1; _i2 >= 0; _i2--) {
+        var index = toSplice[_i2];
+        changes.splice(index, 1);
+      }
 
       if (changes.length) {
         beforeChangeResult = instance.runHooks('beforeChange', changes, source || 'edit');
@@ -15259,12 +15265,15 @@ function Core(rootElement, userSettings) {
    * @memberof Core#
    * @function loadData
    * @param {Array} data Array of arrays or array of objects containing data.
+   * @param {Boolean} deferRender Defers the render until a later point in time. If set to true must call render() yourself.
    * @fires Hooks#afterLoadData
    * @fires Hooks#afterChange
    */
 
 
   this.loadData = function (data) {
+    var deferRender = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : false;
+
     if (Array.isArray(priv.settings.dataSchema)) {
       instance.dataType = 'array';
     } else if ((0, _function.isFunction)(priv.settings.dataSchema)) {
@@ -15335,7 +15344,10 @@ function Core(rootElement, userSettings) {
       priv.firstRun = [null, 'loadData'];
     } else {
       instance.runHooks('afterChange', null, 'loadData');
-      instance.render();
+
+      if (!deferRender) {
+        instance.render();
+      }
     }
 
     priv.isPopulated = true;
@@ -35119,7 +35131,7 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 /* eslint-disable no-unused-vars */
 
 /* eslint-enable no-unused-vars */
-_handsontable.default.baseVersion = "6.2.2";
+_handsontable.default.baseVersion = "git://github.com/jeremy-smith-maco/handsontable.git";
 var _default = _handsontable.default;
 exports.default = _default;
 
@@ -39692,10 +39704,10 @@ Handsontable.DefaultSettings = _defaultSettings.default;
 Handsontable.EventManager = _eventManager.default;
 Handsontable._getListenersCounter = _eventManager.getListenersCounter; // For MemoryLeak tests
 
-Handsontable.buildDate = "19/12/2018 13:27:54";
+Handsontable.buildDate = "14/02/2019 11:44:43";
 Handsontable.packageName = "handsontable-pro";
 Handsontable.version = "6.2.2";
-var baseVersion = "6.2.2";
+var baseVersion = "git://github.com/jeremy-smith-maco/handsontable.git";
 
 if (baseVersion) {
   Handsontable.baseVersion = baseVersion;
@@ -49336,6 +49348,8 @@ _pluginHooks.default.getSingleton().register('modifyAutofillRange');
 
 _pluginHooks.default.getSingleton().register('beforeAutofill');
 
+_pluginHooks.default.getSingleton().register('afterAutofill');
+
 var INSERT_ROW_ALTER_ACTION_NAME = 'insert_row';
 var INTERVAL_FOR_ADDING_ROW = 200;
 /**
@@ -49525,7 +49539,11 @@ function (_BasePlugin) {
 
       if (startOfDragCoords && startOfDragCoords.row > -1 && startOfDragCoords.col > -1) {
         var selectionData = this.getSelectionData();
-        this.hot.runHooks('beforeAutofill', startOfDragCoords, endOfDragCoords, selectionData);
+
+        if (this.hot.runHooks('beforeAutofill', startOfDragCoords, endOfDragCoords, selectionData) === false) {
+          return false;
+        }
+
         var deltas = (0, _utils.getDeltas)(startOfDragCoords, endOfDragCoords, selectionData, directionOfDrag);
         var fillData = selectionData;
 
@@ -49557,6 +49575,7 @@ function (_BasePlugin) {
 
         this.hot.populateFromArray(startOfDragCoords.row, startOfDragCoords.col, fillData, endOfDragCoords.row, endOfDragCoords.col, "".concat(this.pluginName, ".fill"), null, directionOfDrag, deltas);
         this.setSelection(cornersOfSelectionAndDragAreas);
+        this.hot.runHooks('afterAutofill', startOfDragCoords, endOfDragCoords, selectionData);
       } else {
         // reset to avoid some range bug
         this.hot._refreshBorders();
@@ -65748,9 +65767,10 @@ function (_BasePlugin) {
 
           var cellProperties = _this4.hot.getCellMeta(rowIndex, colIndex);
 
-          var cellCallback = cellProperties.search.callback || callback;
+          var cellCallback = cellProperties.search.callback || callback; // https://github.com/handsontable/handsontable/issues/4944
+
           var cellQueryMethod = cellProperties.search.queryMethod || queryMethod;
-          var testResult = cellQueryMethod(queryStr, cellData);
+          var testResult = cellQueryMethod(queryStr, cellData, colIndex);
 
           if (testResult) {
             var singleResult = {
