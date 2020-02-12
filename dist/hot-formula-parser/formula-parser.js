@@ -70,7 +70,7 @@ return /******/ (function(modules) { // webpackBootstrap
 /******/ 	__webpack_require__.p = "";
 /******/
 /******/ 	// Load entry module and return exports
-/******/ 	return __webpack_require__(__webpack_require__.s = 16);
+/******/ 	return __webpack_require__(__webpack_require__.s = 15);
 /******/ })
 /************************************************************************/
 /******/ ([
@@ -247,7 +247,7 @@ exports.parseMatrix = function(matrix) {
   return matrix;
 };
 
-var d1900 = new Date(1900, 0, 1);
+var d1900 = new Date(Date.UTC(1900, 0, 1));
 exports.parseDate = function(date) {
   if (!isNaN(date)) {
     if (date instanceof Date) {
@@ -351,12 +351,12 @@ exports.arrayEach = function(array, iteratee) {
 };
 
 exports.transpose = function(matrix) {
-  if(!matrix) { 
+  if(!matrix) {
     return error.value;
   }
 
-  return matrix[0].map(function(col, i) { 
-    return matrix.map(function(row) { 
+  return matrix[0].map(function(col, i) {
+    return matrix.map(function(row) {
       return row[i];
     });
   });
@@ -469,7 +469,8 @@ function invertNumber(number) {
 var utils = __webpack_require__(1);
 var error = __webpack_require__(0);
 var statistical = __webpack_require__(5);
-var information = __webpack_require__(7);
+var information = __webpack_require__(8);
+var evalExpression = __webpack_require__(7);
 
 exports.ABS = function(number) {
   number = utils.parseNumber(number);
@@ -1456,41 +1457,73 @@ exports.SUM = function() {
 
 exports.SUMIF = function(range, criteria) {
   range = utils.parseNumberArray(utils.flatten(range));
+
   if (range instanceof Error) {
     return range;
   }
   var result = 0;
+  var isWildcard = criteria === void 0 || criteria === '*';
+  var tokenizedCriteria = isWildcard ? null : evalExpression.parse(criteria + '');
+
   for (var i = 0; i < range.length; i++) {
-    result += (eval(range[i] + criteria)) ? range[i] : 0; // jshint ignore:line
+    var value = range[i];
+
+    if (isWildcard) {
+      result += value;
+    } else {
+      var tokens = [evalExpression.createToken(value, evalExpression.TOKEN_TYPE_LITERAL)].concat(tokenizedCriteria);
+
+      result += (evalExpression.compute(tokens) ? value : 0);
+    }
   }
+
   return result;
 };
 
 exports.SUMIFS = function() {
   var args = utils.argsToArray(arguments);
   var range = utils.parseNumberArray(utils.flatten(args.shift()));
+
   if (range instanceof Error) {
     return range;
   }
-  var criteria = args;
-
+  var criterias = args;
   var n_range_elements = range.length;
-  var n_criterias = criteria.length;
-
+  var criteriaLength = criterias.length;
   var result = 0;
+
   for (var i = 0; i < n_range_elements; i++) {
-    var el = range[i];
-    var condition = '';
-    for (var c = 0; c < n_criterias; c++) {
-      condition += el + criteria[c];
-      if (c !== n_criterias - 1) {
-        condition += '&&';
+    var value = range[i];
+    var isMeetCondition = false;
+
+    for (var j = 0; j < criteriaLength; j++) {
+      var criteria = criterias[j];
+      var isWildcard = criteria === void 0 || criteria === '*';
+      var computedResult = false;
+
+      if (isWildcard) {
+        computedResult = true;
+      } else {
+        var tokenizedCriteria = evalExpression.parse(criteria + '');
+        var tokens = [evalExpression.createToken(value, evalExpression.TOKEN_TYPE_LITERAL)].concat(tokenizedCriteria);
+
+        computedResult = evalExpression.compute(tokens);
       }
+
+      // Criterias are calculated as AND so any `false` breakes the loop as unmeet condition
+      if (!computedResult) {
+        isMeetCondition = false;
+        break;
+      }
+
+      isMeetCondition = true;
     }
-    if (eval(condition)) { // jshint ignore:line
-      result += el;
+
+    if (isMeetCondition) {
+      result += value;
     }
   }
+
   return result;
 };
 
@@ -1623,10 +1656,11 @@ exports.TRUNC = function(number, digits) {
 
 var mathTrig = __webpack_require__(4);
 var text = __webpack_require__(6);
-var jStat = __webpack_require__(11).jStat;
+var jStat = __webpack_require__(10);
 var utils = __webpack_require__(1);
+var evalExpression = __webpack_require__(7);
 var error = __webpack_require__(0);
-var misc = __webpack_require__(12);
+var misc = __webpack_require__(11);
 
 var SQRT2PI = 2.5066282746310002;
 
@@ -1692,17 +1726,31 @@ exports.AVERAGEIF = function(range, criteria, average_range) {
   average_range = average_range || range;
   range = utils.flatten(range);
   average_range = utils.parseNumberArray(utils.flatten(average_range));
+
   if (average_range instanceof Error) {
     return average_range;
   }
   var average_count = 0;
   var result = 0;
+  var isWildcard = criteria === void 0 || criteria === '*';
+  var tokenizedCriteria = isWildcard ? null : evalExpression.parse(criteria + '');
+
   for (var i = 0; i < range.length; i++) {
-    if (eval(range[i] + criteria)) { // jshint ignore:line
+    var value = range[i];
+
+    if (isWildcard) {
       result += average_range[i];
       average_count++;
+    } else {
+      var tokens = [evalExpression.createToken(value, evalExpression.TOKEN_TYPE_LITERAL)].concat(tokenizedCriteria);
+
+      if (evalExpression.compute(tokens)) {
+        result += average_range[i];
+        average_count++;
+      }
     }
   }
+
   return result / average_count;
 };
 
@@ -1710,25 +1758,46 @@ exports.AVERAGEIFS = function() {
   // Does not work with multi dimensional ranges yet!
   //http://office.microsoft.com/en-001/excel-help/averageifs-function-HA010047493.aspx
   var args = utils.argsToArray(arguments);
-  var criteria = (args.length - 1) / 2;
+  var criteriaLength = (args.length - 1) / 2;
   var range = utils.flatten(args[0]);
   var count = 0;
   var result = 0;
+
   for (var i = 0; i < range.length; i++) {
-    var condition = '';
-    for (var j = 0; j < criteria; j++) {
-      condition += args[2 * j + 1][i] + args[2 * j + 2];
-      if (j !== criteria - 1) {
-        condition += '&&';
+    var isMeetCondition = false;
+
+    for (var j = 0; j < criteriaLength; j++) {
+      var value = args[2 * j + 1][i];
+      var criteria = args[2 * j + 2];
+      var isWildcard = criteria === void 0 || criteria === '*';
+      var computedResult = false;
+
+      if (isWildcard) {
+        computedResult = true;
+      } else {
+        var tokenizedCriteria = evalExpression.parse(criteria + '');
+        var tokens = [evalExpression.createToken(value, evalExpression.TOKEN_TYPE_LITERAL)].concat(tokenizedCriteria);
+
+        computedResult = evalExpression.compute(tokens);
       }
+
+      // Criterias are calculated as AND so any `false` breakes the loop as unmeet condition
+      if (!computedResult) {
+        isMeetCondition = false;
+        break;
+      }
+
+      isMeetCondition = true;
     }
-    if (eval(condition)) { // jshint ignore:line
+
+    if (isMeetCondition) {
       result += range[i];
       count++;
     }
   }
 
   var average = result / count;
+
   if (isNaN(average)) {
     return 0;
   } else {
@@ -2051,41 +2120,48 @@ exports.COUNTBLANK = function() {
 
 exports.COUNTIF = function(range, criteria) {
   range = utils.flatten(range);
-  if (!/[<>=!]/.test(criteria)) {
-    criteria = '=="' + criteria + '"';
+
+  var isWildcard = criteria === void 0 || criteria === '*';
+
+  if (isWildcard) {
+    return range.length;
   }
+
   var matches = 0;
+  var tokenizedCriteria = evalExpression.parse(criteria + '');
+
   for (var i = 0; i < range.length; i++) {
-    if (typeof range[i] !== 'string') {
-      if (eval(range[i] + criteria)) { // jshint ignore:line
-        matches++;
-      }
-    } else {
-      if (eval('"' + range[i] + '"' + criteria)) { // jshint ignore:line
-        matches++;
-      }
+    var value = range[i];
+    var tokens = [evalExpression.createToken(value, evalExpression.TOKEN_TYPE_LITERAL)].concat(tokenizedCriteria);
+
+    if (evalExpression.compute(tokens)) {
+      matches++;
     }
   }
+
   return matches;
 };
 
 exports.COUNTIFS = function() {
   var args = utils.argsToArray(arguments);
   var results = new Array(utils.flatten(args[0]).length);
+
   for (var i = 0; i < results.length; i++) {
     results[i] = true;
   }
   for (i = 0; i < args.length; i += 2) {
     var range = utils.flatten(args[i]);
     var criteria = args[i + 1];
-    if (!/[<>=!]/.test(criteria)) {
-      criteria = '=="' + criteria + '"';
-    }
-    for (var j = 0; j < range.length; j++) {
-      if (typeof range[j] !== 'string') {
-        results[j] = results[j] && eval(range[j] + criteria); // jshint ignore:line
-      } else {
-        results[j] = results[j] && eval('"' + range[j] + '"' + criteria); // jshint ignore:line
+    var isWildcard = criteria === void 0 || criteria === '*';
+
+    if (!isWildcard) {
+      var tokenizedCriteria = evalExpression.parse(criteria + '');
+
+      for (var j = 0; j < range.length; j++) {
+        var value = range[j];
+        var tokens = [evalExpression.createToken(value, evalExpression.TOKEN_TYPE_LITERAL)].concat(tokenizedCriteria);
+
+        results[j] = results[j] && evalExpression.compute(tokens);
       }
     }
   }
@@ -2095,6 +2171,7 @@ exports.COUNTIFS = function() {
       result++;
     }
   }
+
   return result;
 };
 
@@ -3430,7 +3507,6 @@ exports.Z.TEST = function(range, x, sd) {
 
 var utils = __webpack_require__(1);
 var error = __webpack_require__(0);
-var numbro = __webpack_require__(9);
 
 //TODO
 exports.ASC = function() {
@@ -3487,22 +3563,9 @@ exports.DBCS = function() {
   throw new Error('DBCS is not implemented');
 };
 
-exports.DOLLAR = function(number, decimals) {
-  decimals = (decimals === undefined) ? 2 : decimals;
-
-  number = utils.parseNumber(number);
-  decimals = utils.parseNumber(decimals);
-  if (utils.anyIsError(number, decimals)) {
-    return error.value;
-  }
-  var format = '';
-  if (decimals <= 0) {
-    number = Math.round(number * Math.pow(10, decimals)) / Math.pow(10, decimals);
-    format = '($0,0)';
-  } else if (decimals > 0) {
-    format = '($0,0.' + new Array(decimals + 1).join('0') + ')';
-  }
-  return numbro(number).format(format);
+//TODO
+exports.DOLLAR = function() {
+  throw new Error('DOLLAR is not implemented');
 };
 
 exports.EXACT = function(text1, text2) {
@@ -3520,23 +3583,9 @@ exports.FIND = function(find_text, within_text, position) {
   return within_text ? within_text.indexOf(find_text, position - 1) + 1 : null;
 };
 
-exports.FIXED = function(number, decimals, no_commas) {
-  decimals = (decimals === undefined) ? 2 : decimals;
-  no_commas = (no_commas === undefined) ? false : no_commas;
-
-  number = utils.parseNumber(number);
-  decimals = utils.parseNumber(decimals);
-  if (utils.anyIsError(number, decimals)) {
-    return error.value;
-  }
-
-  var format = no_commas ? '0' : '0,0';
-  if (decimals <= 0) {
-    number = Math.round(number * Math.pow(10, decimals)) / Math.pow(10, decimals);
-  } else if (decimals > 0) {
-    format += '.' + new Array(decimals + 1).join('0');
-  }
-  return numbro(number).format(format);
+//TODO
+exports.FIXED = function() {
+  throw new Error('FIXED is not implemented');
 };
 
 exports.HTML2TEXT = function (value) {
@@ -3728,13 +3777,8 @@ exports.T = function(value) {
 };
 
 // TODO incomplete implementation
-exports.TEXT = function(value, format) {
-  value = utils.parseNumber(value);
-  if (utils.anyIsError(value)) {
-    return error.na;
-  }
-
-  return numbro(value).format(format);
+exports.TEXT = function() {
+  throw new Error('TEXT is not implemented');
 };
 
 exports.TRIM = function(text) {
@@ -3755,18 +3799,210 @@ exports.UPPER = function(text) {
   return text.toUpperCase();
 };
 
-exports.VALUE = function(text) {
-  if (typeof text !== 'string') {
-    return error.value;
-  }
-  var result = numbro().unformat(text);
-
-  return result === void 0 ? 0 : result;
+//TODO
+exports.VALUE = function() {
+  throw new Error('VALUE is not implemented');
 };
 
 
 /***/ }),
 /* 7 */
+/***/ (function(module, exports) {
+
+var defaultOperator = '=';
+var validSymbols = ['>', '>=', '<', '<=', '=', '<>'];
+var TOKEN_TYPE_OPERATOR = 'operator';
+var TOKEN_TYPE_LITERAL = 'literal';
+var SUPPORTED_TOKENS = [TOKEN_TYPE_OPERATOR, TOKEN_TYPE_LITERAL];
+
+exports.TOKEN_TYPE_OPERATOR = TOKEN_TYPE_OPERATOR;
+exports.TOKEN_TYPE_LITERAL = TOKEN_TYPE_LITERAL;
+
+/**
+ * Create token which describe passed symbol/value.
+ *
+ * @param {String} value Value/Symbol to describe.
+ * @param {String} type Type of the token 'operator' or 'literal'.
+ * @return {Object}
+ */
+function createToken(value, type) {
+  if (SUPPORTED_TOKENS.indexOf(type) === -1) {
+    throw new Error('Unsupported token type: ' + type);
+  }
+
+  return {
+    value: value,
+    type: type,
+  };
+}
+
+/**
+ * Tries to cast numeric values to their type passed as a string.
+ *
+ * @param {*} value
+ * @return {*}
+ */
+function castValueToCorrectType(value) {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  if (/^\d+(\.\d+)?$/.test(value)) {
+    value = value.indexOf('.') === -1 ? parseInt(value, 10) : parseFloat(value);
+  }
+
+  return value;
+}
+
+/**
+ * Generate stream of tokens from passed expression.
+ *
+ * @param {String} expression
+ * @return {String[]}
+ */
+function tokenizeExpression(expression) {
+  var expressionLength = expression.length;
+  var tokens = [];
+  var cursorIndex = 0;
+  var processedValue = '';
+  var processedSymbol = '';
+
+  while (cursorIndex < expressionLength) {
+    var char = expression.charAt(cursorIndex);
+
+    switch (char) {
+      case '>':
+      case '<':
+      case '=':
+        processedSymbol = processedSymbol + char;
+
+        if (processedValue.length > 0) {
+          tokens.push(processedValue);
+          processedValue = '';
+        }
+      break;
+      default:
+        if (processedSymbol.length > 0) {
+          tokens.push(processedSymbol);
+          processedSymbol = '';
+        }
+
+        processedValue = processedValue + char;
+      break;
+    }
+    cursorIndex++;
+  }
+
+  if (processedValue.length > 0) {
+    tokens.push(processedValue);
+  }
+  if (processedSymbol.length > 0) {
+    tokens.push(processedSymbol);
+  }
+
+  return tokens;
+};
+
+/**
+ * Analyze and convert tokens to an object which describes their meaning.
+ *
+ * @param {String[]} tokens
+ * @return {Object[]}
+ */
+function analyzeTokens(tokens) {
+  var literalValue = '';
+  var analyzedTokens = [];
+
+  for (var i = 0; i < tokens.length; i++) {
+    var token = tokens[i];
+
+    if (i === 0 && validSymbols.indexOf(token) >= 0) {
+      analyzedTokens.push(createToken(token, TOKEN_TYPE_OPERATOR));
+    } else {
+      literalValue += token;
+    }
+  }
+
+  if (literalValue.length > 0) {
+    analyzedTokens.push(createToken(castValueToCorrectType(literalValue), TOKEN_TYPE_LITERAL));
+  }
+
+  if (analyzedTokens.length > 0 && analyzedTokens[0].type !== TOKEN_TYPE_OPERATOR) {
+    analyzedTokens.unshift(createToken(defaultOperator, TOKEN_TYPE_OPERATOR));
+  }
+
+  return analyzedTokens;
+};
+
+/**
+ * Compute/Evaluate an expression passed as an array of tokens.
+ *
+ * @param {Object[]} tokens
+ * @return {Boolean}
+ */
+function computeExpression(tokens) {
+  var values = [];
+  var operator;
+
+  for (var i = 0; i < tokens.length; i++) {
+    var token = tokens[i];
+
+    switch (token.type) {
+      case TOKEN_TYPE_OPERATOR:
+        operator = token.value;
+      break;
+      case TOKEN_TYPE_LITERAL:
+        values.push(token.value);
+      break;
+    }
+  }
+
+  return evaluate(values, operator);
+};
+
+/**
+ * Evaluate values based on passed math operator.
+ *
+ * @param {*} values
+ * @param {String} operator
+ * @return {Boolean}
+ */
+function evaluate(values, operator) {
+  var result = false;
+
+  switch (operator) {
+    case '>':
+      result = values[0] > values[1];
+      break;
+    case '>=':
+      result = values[0] >= values[1];
+      break;
+    case '<':
+      result = values[0] < values[1];
+      break;
+    case '<=':
+      result = values[0] <= values[1];
+      break;
+    case '=':
+      result = values[0] == values[1];
+      break;
+    case '<>':
+      result = values[0] != values[1];
+      break;
+  }
+
+  return result;
+}
+
+exports.parse = function(expression) {
+  return analyzeTokens(tokenizeExpression(expression));
+};
+exports.createToken = createToken;
+exports.compute = computeExpression;
+
+
+/***/ }),
+/* 8 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var error = __webpack_require__(0);
@@ -3905,13 +4141,13 @@ exports.TYPE = function(value) {
 
 
 /***/ }),
-/* 8 */
+/* 9 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var error = __webpack_require__(0);
 var utils = __webpack_require__(1);
 
-var d1900 = new Date(1900, 0, 1);
+var d1900 = new Date(Date.UTC(1900, 0, 1));
 var WEEK_STARTS = [
   undefined,
   0,
@@ -3994,19 +4230,24 @@ exports.DATE = function(year, month, day) {
 };
 
 exports.DATEVALUE = function(date_text) {
+  var modifier = 2;
+  var date;
+
   if (typeof date_text !== 'string') {
     return error.value;
   }
-  var date = Date.parse(date_text);
+
+  date = Date.parse(date_text);
 
   if (isNaN(date)) {
     return error.value;
   }
+
   if (date <= -2203891200000) {
-    return (date - d1900) / 86400000 + 1;
+    modifier = 1;
   }
 
-  return (date - d1900) / 86400000 + 2;
+  return Math.ceil((date - d1900) / 86400000) + modifier;
 };
 
 exports.DAY = function(serial_number) {
@@ -4459,1503 +4700,12 @@ exports.YEARFRAC = function(start_date, end_date, basis) {
 function serial(date) {
   var addOn = (date > -2203891200000) ? 2 : 1;
 
-  return (date - d1900) / 86400000 + addOn;
+  return Math.ceil((date - d1900) / 86400000) + addOn;
 }
 
-
-/***/ }),
-/* 9 */
-/***/ (function(module, exports, __webpack_require__) {
-
-/* WEBPACK VAR INJECTION */(function(process) {var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;/*!
- * numbro.js
- * version : 1.11.1
- * author : Företagsplatsen AB
- * license : MIT
- * http://www.foretagsplatsen.se
- */
-
-(function () {
-    'use strict';
-
-    /************************************
-        Constants
-    ************************************/
-
-    var numbro,
-        VERSION = '1.11.1',
-        binarySuffixes = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'],
-        decimalSuffixes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'],
-        bytes = {
-            general: { scale: 1024, suffixes: decimalSuffixes, marker: 'bd' },
-            binary:  { scale: 1024, suffixes: binarySuffixes, marker: 'b' },
-            decimal: { scale: 1000, suffixes: decimalSuffixes, marker: 'd' }
-        },
-        // general must be before the others because it reuses their characters!
-        byteFormatOrder = [ bytes.general, bytes.binary, bytes.decimal ],
-    // internal storage for culture config files
-        cultures = {},
-    // Todo: Remove in 2.0.0
-        languages = cultures,
-        currentCulture = 'en-US',
-        zeroFormat = null,
-        defaultFormat = '0,0',
-        defaultCurrencyFormat = '0$',
-        // check for nodeJS
-        hasModule = (typeof module !== 'undefined' && module.exports),
-    // default culture
-        enUS = {
-            delimiters: {
-                thousands: ',',
-                decimal: '.'
-            },
-            abbreviations: {
-                thousand: 'k',
-                million: 'm',
-                billion: 'b',
-                trillion: 't'
-            },
-            ordinal: function(number) {
-                var b = number % 10;
-                return (~~(number % 100 / 10) === 1) ? 'th' :
-                    (b === 1) ? 'st' :
-                        (b === 2) ? 'nd' :
-                            (b === 3) ? 'rd' : 'th';
-            },
-            currency: {
-                symbol: '$',
-                position: 'prefix'
-            },
-            defaults: {
-                currencyFormat: ',0000 a'
-            },
-            formats: {
-                fourDigits: '0000 a',
-                fullWithTwoDecimals: '$ ,0.00',
-                fullWithTwoDecimalsNoCurrency: ',0.00'
-            }
-        };
-
-    /************************************
-        Constructors
-    ************************************/
-
-
-    // Numbro prototype object
-    function Numbro(number) {
-        this._value = number;
-    }
-
-    function numberLength(number) {
-        if (number === 0) { return 1; }
-        return Math.floor(Math.log(Math.abs(number)) / Math.LN10) + 1;
-    }
-
-    function zeroes(count) {
-        var i, ret = '';
-
-        for (i = 0; i < count; i++) {
-            ret += '0';
-        }
-
-        return ret;
-    }
-    /**
-     * Implementation of toFixed() for numbers with exponents
-     * This function may return negative representations for zero values e.g. "-0.0"
-     */
-    function toFixedLargeSmall(value, precision) {
-        var mantissa,
-            beforeDec,
-            afterDec,
-            exponent,
-            prefix,
-            endStr,
-            zerosStr,
-            str;
-
-        str = value.toString();
-
-        mantissa = str.split('e')[0];
-        exponent = str.split('e')[1];
-
-        beforeDec = mantissa.split('.')[0];
-        afterDec = mantissa.split('.')[1] || '';
-
-        if (+exponent > 0) {
-            // exponent is positive - add zeros after the numbers
-            str = beforeDec + afterDec + zeroes(exponent - afterDec.length);
-        } else {
-            // exponent is negative
-
-            if (+beforeDec < 0) {
-                prefix = '-0';
-            } else {
-                prefix = '0';
-            }
-
-            // tack on the decimal point if needed
-            if (precision > 0) {
-                prefix += '.';
-            }
-
-            zerosStr = zeroes((-1 * exponent) - 1);
-            // substring off the end to satisfy the precision
-            endStr = (zerosStr + Math.abs(beforeDec) + afterDec).substr(0, precision);
-            str = prefix + endStr;
-        }
-
-        // only add percision 0's if the exponent is positive
-        if (+exponent > 0 && precision > 0) {
-            str += '.' + zeroes(precision);
-        }
-
-        return str;
-    }
-
-    /**
-     * Implementation of toFixed() that treats floats more like decimals
-     *
-     * Fixes binary rounding issues (eg. (0.615).toFixed(2) === '0.61') that present
-     * problems for accounting- and finance-related software.
-     *
-     * Also removes negative signs for zero-formatted numbers. e.g. -0.01 w/ precision 1 -> 0.0
-     */
-    function toFixed(value, precision, roundingFunction, optionals) {
-        var power = Math.pow(10, precision),
-            optionalsRegExp,
-            output;
-
-        if (value.toString().indexOf('e') > -1) {
-            // toFixed returns scientific notation for numbers above 1e21 and below 1e-7
-            output = toFixedLargeSmall(value, precision);
-            // remove the leading negative sign if it exists and should not be present (e.g. -0.00)
-            if (output.charAt(0) === '-' && +output >= 0) {
-                output = output.substr(1); // chop off the '-'
-            }
-        }
-        else {
-            // Multiply up by precision, round accurately, then divide and use native toFixed():
-            output = (roundingFunction(value + 'e+' + precision) / power).toFixed(precision);
-        }
-
-        if (optionals) {
-            optionalsRegExp = new RegExp('0{1,' + optionals + '}$');
-            output = output.replace(optionalsRegExp, '');
-        }
-
-        return output;
-    }
-
-    /************************************
-        Formatting
-    ************************************/
-
-    // determine what type of formatting we need to do
-    function formatNumbro(n, format, roundingFunction) {
-        var output,
-            escapedFormat = format.replace(/\{[^\{\}]*\}/g, '');
-
-        // figure out what kind of format we are dealing with
-        if (escapedFormat.indexOf('$') > -1) { // currency!!!!!
-            output = formatCurrency(n, cultures[currentCulture].currency.symbol, format, roundingFunction);
-        } else if (escapedFormat.indexOf('%') > -1) { // percentage
-            output = formatPercentage(n, format, roundingFunction);
-        } else if (escapedFormat.indexOf(':') > -1) { // time
-            output = formatTime(n, format);
-        } else { // plain ol' numbers or bytes
-            output = formatNumber(n._value, format, roundingFunction);
-        }
-
-        // return string
-        return output;
-    }
-
-    // revert to number
-    function unformatNumbro(n, string) {
-        var stringOriginal = string,
-            thousandRegExp,
-            millionRegExp,
-            billionRegExp,
-            trillionRegExp,
-            bytesMultiplier = false,
-            power;
-
-        if (string.indexOf(':') > -1) {
-            n._value = unformatTime(string);
-        } else {
-            if (string === zeroFormat) {
-                n._value = 0;
-            } else {
-                if (cultures[currentCulture].delimiters.decimal !== '.') {
-                    string = string.replace(/\./g, '').replace(cultures[currentCulture].delimiters.decimal, '.');
-                }
-
-                // see if abbreviations are there so that we can multiply to the correct number
-                thousandRegExp = new RegExp('[^a-zA-Z]' + cultures[currentCulture].abbreviations.thousand +
-                    '(?:\\)|(\\' + cultures[currentCulture].currency.symbol + ')?(?:\\))?)?$');
-                millionRegExp = new RegExp('[^a-zA-Z]' + cultures[currentCulture].abbreviations.million +
-                    '(?:\\)|(\\' + cultures[currentCulture].currency.symbol + ')?(?:\\))?)?$');
-                billionRegExp = new RegExp('[^a-zA-Z]' + cultures[currentCulture].abbreviations.billion +
-                    '(?:\\)|(\\' + cultures[currentCulture].currency.symbol + ')?(?:\\))?)?$');
-                trillionRegExp = new RegExp('[^a-zA-Z]' + cultures[currentCulture].abbreviations.trillion +
-                    '(?:\\)|(\\' + cultures[currentCulture].currency.symbol + ')?(?:\\))?)?$');
-
-                // see if bytes are there so that we can multiply to the correct number
-                for (power = 1; power < binarySuffixes.length && !bytesMultiplier; ++power) {
-                    if (string.indexOf(binarySuffixes[power]) > -1) {
-                        bytesMultiplier = Math.pow(1024, power);
-                    } else if (string.indexOf(decimalSuffixes[power]) > -1) {
-                        bytesMultiplier = Math.pow(1000, power);
-                    }
-                }
-
-                var str = string.replace(/[^0-9\.]+/g, '');
-                if (str === '') {
-                    // An empty string is not a number.
-                    n._value = NaN;
-
-                } else {
-                    // do some math to create our number
-                    n._value = ((bytesMultiplier) ? bytesMultiplier : 1) *
-                        ((stringOriginal.match(thousandRegExp)) ? Math.pow(10, 3) : 1) *
-                        ((stringOriginal.match(millionRegExp)) ? Math.pow(10, 6) : 1) *
-                        ((stringOriginal.match(billionRegExp)) ? Math.pow(10, 9) : 1) *
-                        ((stringOriginal.match(trillionRegExp)) ? Math.pow(10, 12) : 1) *
-                        ((string.indexOf('%') > -1) ? 0.01 : 1) *
-                        (((string.split('-').length +
-                            Math.min(string.split('(').length - 1, string.split(')').length - 1)) % 2) ? 1 : -1) *
-                        Number(str);
-
-                    // round if we are talking about bytes
-                    n._value = (bytesMultiplier) ? Math.ceil(n._value) : n._value;
-                }
-            }
-        }
-        return n._value;
-    }
-
-    function formatCurrency(n, currencySymbol, originalFormat, roundingFunction) {
-        var format = originalFormat,
-            symbolIndex = format.indexOf('$'),
-            openParenIndex = format.indexOf('('),
-            plusSignIndex = format.indexOf('+'),
-            minusSignIndex = format.indexOf('-'),
-            space = '',
-            decimalSeparator = '',
-            spliceIndex,
-            output;
-
-        if(format.indexOf('$') === -1){
-            // Use defaults instead of the format provided
-            if (cultures[currentCulture].currency.position === 'infix') {
-                decimalSeparator = currencySymbol;
-                if (cultures[currentCulture].currency.spaceSeparated) {
-                    decimalSeparator = ' ' + decimalSeparator + ' ';
-                }
-            } else if (cultures[currentCulture].currency.spaceSeparated) {
-                space = ' ';
-            }
-        } else {
-            // check for space before or after currency
-            if (format.indexOf(' $') > -1) {
-                space = ' ';
-                format = format.replace(' $', '');
-            } else if (format.indexOf('$ ') > -1) {
-                space = ' ';
-                format = format.replace('$ ', '');
-            } else {
-                format = format.replace('$', '');
-            }
-        }
-
-        // Format The Number
-        output = formatNumber(n._value, format, roundingFunction, decimalSeparator);
-
-        if (originalFormat.indexOf('$') === -1) {
-            // Use defaults instead of the format provided
-            switch (cultures[currentCulture].currency.position) {
-                case 'postfix':
-                    if (output.indexOf(')') > -1) {
-                        output = output.split('');
-                        output.splice(-1, 0, space + currencySymbol);
-                        output = output.join('');
-                    } else {
-                        output = output + space + currencySymbol;
-                    }
-                    break;
-                case 'infix':
-                    break;
-                case 'prefix':
-                    if (output.indexOf('(') > -1 || output.indexOf('-') > -1) {
-                        output = output.split('');
-                        spliceIndex = Math.max(openParenIndex, minusSignIndex) + 1;
-
-                        output.splice(spliceIndex, 0, currencySymbol + space);
-                        output = output.join('');
-                    } else {
-                        output = currencySymbol + space + output;
-                    }
-                    break;
-                default:
-                    throw Error('Currency position should be among ["prefix", "infix", "postfix"]');
-            }
-        } else {
-            // position the symbol
-            if (symbolIndex <= 1) {
-                if (output.indexOf('(') > -1 || output.indexOf('+') > -1 || output.indexOf('-') > -1) {
-                    output = output.split('');
-                    spliceIndex = 1;
-                    if (symbolIndex < openParenIndex || symbolIndex < plusSignIndex || symbolIndex < minusSignIndex) {
-                        // the symbol appears before the "(", "+" or "-"
-                        spliceIndex = 0;
-                    }
-                    output.splice(spliceIndex, 0, currencySymbol + space);
-                    output = output.join('');
-                } else {
-                    output = currencySymbol + space + output;
-                }
-            } else {
-                if (output.indexOf(')') > -1) {
-                    output = output.split('');
-                    output.splice(-1, 0, space + currencySymbol);
-                    output = output.join('');
-                } else {
-                    output = output + space + currencySymbol;
-                }
-            }
-        }
-
-        return output;
-    }
-
-    function formatForeignCurrency(n, foreignCurrencySymbol, originalFormat, roundingFunction) {
-        return formatCurrency(n, foreignCurrencySymbol, originalFormat, roundingFunction);
-    }
-
-    function formatPercentage(n, format, roundingFunction) {
-        var space = '',
-            output,
-            value = n._value * 100;
-
-        // check for space before %
-        if (format.indexOf(' %') > -1) {
-            space = ' ';
-            format = format.replace(' %', '');
-        } else {
-            format = format.replace('%', '');
-        }
-
-        output = formatNumber(value, format, roundingFunction);
-
-        if (output.indexOf(')') > -1) {
-            output = output.split('');
-            output.splice(-1, 0, space + '%');
-            output = output.join('');
-        } else {
-            output = output + space + '%';
-        }
-
-        return output;
-    }
-
-    function formatTime(n) {
-        var hours = Math.floor(n._value / 60 / 60),
-            minutes = Math.floor((n._value - (hours * 60 * 60)) / 60),
-            seconds = Math.round(n._value - (hours * 60 * 60) - (minutes * 60));
-        return hours + ':' +
-            ((minutes < 10) ? '0' + minutes : minutes) + ':' +
-            ((seconds < 10) ? '0' + seconds : seconds);
-    }
-
-    function unformatTime(string) {
-        var timeArray = string.split(':'),
-            seconds = 0;
-        // turn hours and minutes into seconds and add them all up
-        if (timeArray.length === 3) {
-            // hours
-            seconds = seconds + (Number(timeArray[0]) * 60 * 60);
-            // minutes
-            seconds = seconds + (Number(timeArray[1]) * 60);
-            // seconds
-            seconds = seconds + Number(timeArray[2]);
-        } else if (timeArray.length === 2) {
-            // minutes
-            seconds = seconds + (Number(timeArray[0]) * 60);
-            // seconds
-            seconds = seconds + Number(timeArray[1]);
-        }
-        return Number(seconds);
-    }
-
-    function formatByteUnits (value, suffixes, scale) {
-        var suffix = suffixes[0],
-            power,
-            min,
-            max,
-            abs = Math.abs(value);
-
-        if (abs >= scale) {
-            for (power = 1; power < suffixes.length; ++power) {
-                min = Math.pow(scale, power);
-                max = Math.pow(scale, power + 1);
-
-                if (abs >= min && abs < max) {
-                    suffix = suffixes[power];
-                    value = value / min;
-                    break;
-                }
-            }
-
-            // values greater than or equal to [scale] YB never set the suffix
-            if (suffix === suffixes[0]) {
-                value = value / Math.pow(scale, suffixes.length - 1);
-                suffix = suffixes[suffixes.length - 1];
-            }
-        }
-
-        return { value: value, suffix: suffix };
-    }
-
-    function formatNumber (value, format, roundingFunction, sep) {
-        var negP = false,
-            signed = false,
-            optDec = false,
-            abbr = '',
-            abbrK = false, // force abbreviation to thousands
-            abbrM = false, // force abbreviation to millions
-            abbrB = false, // force abbreviation to billions
-            abbrT = false, // force abbreviation to trillions
-            abbrForce = false, // force abbreviation
-            bytes = '',
-            byteFormat,
-            units,
-            ord = '',
-            abs = Math.abs(value),
-            totalLength,
-            length,
-            minimumPrecision,
-            pow,
-            w,
-            intPrecision,
-            precision,
-            prefix,
-            postfix,
-            thousands,
-            d = '',
-            forcedNeg = false,
-            neg = false,
-            indexOpenP,
-            indexMinus,
-            paren = '',
-            minlen,
-            i;
-
-        // check if number is zero and a custom zero format has been set
-        if (value === 0 && zeroFormat !== null) {
-            return zeroFormat;
-        }
-
-        if (!isFinite(value)) {
-            return '' + value;
-        }
-
-        if (format.indexOf('{') === 0) {
-            var end = format.indexOf('}');
-            if (end === -1) {
-                throw Error('Format should also contain a "}"');
-            }
-            prefix = format.slice(1, end);
-            format = format.slice(end + 1);
-        } else {
-            prefix = '';
-        }
-
-        if (format.indexOf('}') === format.length - 1 && format.length) {
-            var start = format.indexOf('{');
-            if (start === -1) {
-                throw Error('Format should also contain a "{"');
-            }
-            postfix = format.slice(start + 1, -1);
-            format = format.slice(0, start + 1);
-        } else {
-            postfix = '';
-        }
-
-        // check for min length
-        var info;
-        if (format.indexOf('.') === -1) {
-            info = format.match(/([0-9]+).*/);
-        } else {
-            info = format.match(/([0-9]+)\..*/);
-        }
-        minlen = info === null ? -1 : info[1].length;
-
-        // see if we should use parentheses for negative number or if we should prefix with a sign
-        // if both are present we default to parentheses
-        if (format.indexOf('-') !== -1) {
-            forcedNeg = true;
-        }
-        if (format.indexOf('(') > -1) {
-            negP = true;
-            format = format.slice(1, -1);
-        } else if (format.indexOf('+') > -1) {
-            signed = true;
-            format = format.replace(/\+/g, '');
-        }
-
-        // see if abbreviation is wanted
-        if (format.indexOf('a') > -1) {
-            intPrecision = format.split('.')[0].match(/[0-9]+/g) || ['0'];
-            intPrecision = parseInt(intPrecision[0], 10);
-
-            // check if abbreviation is specified
-            abbrK = format.indexOf('aK') >= 0;
-            abbrM = format.indexOf('aM') >= 0;
-            abbrB = format.indexOf('aB') >= 0;
-            abbrT = format.indexOf('aT') >= 0;
-            abbrForce = abbrK || abbrM || abbrB || abbrT;
-
-            // check for space before abbreviation
-            if (format.indexOf(' a') > -1) {
-                abbr = ' ';
-                format = format.replace(' a', '');
-            } else {
-                format = format.replace('a', '');
-            }
-
-            totalLength = numberLength(value);
-            minimumPrecision = totalLength % 3;
-            minimumPrecision = minimumPrecision === 0 ? 3 : minimumPrecision;
-
-            if (intPrecision && abs !== 0) {
-                pow = 3 * ~~((Math.min(intPrecision, totalLength) - minimumPrecision) / 3);
-                abs = abs / Math.pow(10, pow);
-            }
-
-            if (totalLength !== intPrecision) {
-                if (abs >= Math.pow(10, 12) && !abbrForce || abbrT) {
-                    // trillion
-                    abbr = abbr + cultures[currentCulture].abbreviations.trillion;
-                    value = value / Math.pow(10, 12);
-                } else if (abs < Math.pow(10, 12) && abs >= Math.pow(10, 9) && !abbrForce || abbrB) {
-                    // billion
-                    abbr = abbr + cultures[currentCulture].abbreviations.billion;
-                    value = value / Math.pow(10, 9);
-                } else if (abs < Math.pow(10, 9) && abs >= Math.pow(10, 6) && !abbrForce || abbrM) {
-                    // million
-                    abbr = abbr + cultures[currentCulture].abbreviations.million;
-                    value = value / Math.pow(10, 6);
-                } else if (abs < Math.pow(10, 6) && abs >= Math.pow(10, 3) && !abbrForce || abbrK) {
-                    // thousand
-                    abbr = abbr + cultures[currentCulture].abbreviations.thousand;
-                    value = value / Math.pow(10, 3);
-                }
-            }
-
-            length = numberLength(value);
-            if (intPrecision && length < intPrecision && format.indexOf('.') === -1) {
-                format += '[.]';
-                format += zeroes(intPrecision - length);
-            }
-        }
-
-        // see if we are formatting
-        //   binary-decimal bytes (1024 MB), binary bytes (1024 MiB), or decimal bytes (1000 MB)
-        for (i = 0; i < byteFormatOrder.length; ++i) {
-            byteFormat = byteFormatOrder[i];
-
-            if (format.indexOf(byteFormat.marker) > -1) {
-                // check for space before
-                if (format.indexOf(' ' + byteFormat.marker) >-1) {
-                    bytes = ' ';
-                }
-
-                // remove the marker (with the space if it had one)
-                format = format.replace(bytes + byteFormat.marker, '');
-
-                units = formatByteUnits(value, byteFormat.suffixes, byteFormat.scale);
-
-                value = units.value;
-                bytes = bytes + units.suffix;
-
-                break;
-            }
-        }
-
-        // see if ordinal is wanted
-        if (format.indexOf('o') > -1) {
-            // check for space before
-            if (format.indexOf(' o') > -1) {
-                ord = ' ';
-                format = format.replace(' o', '');
-            } else {
-                format = format.replace('o', '');
-            }
-
-            if (cultures[currentCulture].ordinal) {
-                ord = ord + cultures[currentCulture].ordinal(value);
-            }
-        }
-
-        if (format.indexOf('[.]') > -1) {
-            optDec = true;
-            format = format.replace('[.]', '.');
-        }
-
-        precision = format.split('.')[1];
-        thousands = format.indexOf(',');
-
-        if (precision) {
-            var dSplit = [];
-
-            if (precision.indexOf('*') !== -1) {
-                d = value.toString();
-                dSplit = d.split('.');
-                if (dSplit.length > 1) {
-                    d = toFixed(value, dSplit[1].length, roundingFunction);
-                }
-            } else {
-                if (precision.indexOf('[') > -1) {
-                    precision = precision.replace(']', '');
-                    precision = precision.split('[');
-                    d = toFixed(value, (precision[0].length + precision[1].length), roundingFunction,
-                        precision[1].length);
-                } else {
-                    d = toFixed(value, precision.length, roundingFunction);
-                }
-            }
-
-            dSplit = d.split('.');
-            w = dSplit[0];
-
-            if (dSplit.length > 1 && dSplit[1].length) {
-                var p = sep ? abbr + sep : cultures[currentCulture].delimiters.decimal;
-                d = p + dSplit[1];
-            } else {
-                d = '';
-            }
-
-            if (optDec && Number(d.slice(1)) === 0) {
-                d = '';
-            }
-        } else {
-            w = toFixed(value, 0, roundingFunction);
-        }
-
-        // format number
-        if (w.indexOf('-') > -1) {
-            w = w.slice(1);
-            neg = true;
-        }
-
-        if (w.length < minlen) {
-            w = zeroes(minlen - w.length) + w;
-        }
-
-        if (thousands > -1) {
-            w = w.toString().replace(/(\d)(?=(\d{3})+(?!\d))/g, '$1' +
-                cultures[currentCulture].delimiters.thousands);
-        }
-
-        if (format.indexOf('.') === 0) {
-            w = '';
-        }
-
-        indexOpenP = format.indexOf('(');
-        indexMinus = format.indexOf('-');
-
-        if (indexOpenP < indexMinus) {
-            paren = ((negP && neg) ? '(' : '') + (((forcedNeg && neg) || (!negP && neg)) ? '-' : '');
-        } else {
-            paren = (((forcedNeg && neg) || (!negP && neg)) ? '-' : '') + ((negP && neg) ? '(' : '');
-        }
-
-        return prefix +
-            paren + ((!neg && signed && value !== 0) ? '+' : '') +
-            w + d +
-            ((ord) ? ord : '') +
-            ((abbr && !sep) ? abbr : '') +
-            ((bytes) ? bytes : '') +
-            ((negP && neg) ? ')' : '') +
-            postfix;
-    }
-
-    /************************************
-        Top Level Functions
-    ************************************/
-
-    numbro = function(input) {
-        if (numbro.isNumbro(input)) {
-            input = input.value();
-        } else if (typeof input === 'string' || typeof input === 'number') {
-            input = numbro.fn.unformat(input);
-        } else {
-            input = NaN;
-        }
-
-        return new Numbro(Number(input));
-    };
-
-    // version number
-    numbro.version = VERSION;
-
-    // compare numbro object
-    numbro.isNumbro = function(obj) {
-        return obj instanceof Numbro;
-    };
-
-    /**
-     * This function allow the user to set a new language with a fallback if
-     * the language does not exist. If no fallback language is provided,
-     * it fallbacks to english.
-     *
-     * @deprecated Since in version 1.6.0. It will be deleted in version 2.0
-     * `setCulture` should be used instead.
-     */
-    numbro.setLanguage = function(newLanguage, fallbackLanguage) {
-        console.warn('`setLanguage` is deprecated since version 1.6.0. Use `setCulture` instead');
-        var key = newLanguage,
-            prefix = newLanguage.split('-')[0],
-            matchingLanguage = null;
-        if (!languages[key]) {
-            Object.keys(languages).forEach(function(language) {
-                if (!matchingLanguage && language.split('-')[0] === prefix) {
-                    matchingLanguage = language;
-                }
-            });
-            key = matchingLanguage || fallbackLanguage || 'en-US';
-        }
-        chooseCulture(key);
-    };
-
-    /**
-     * This function allow the user to set a new culture with a fallback if
-     * the culture does not exist. If no fallback culture is provided,
-     * it falls back to "en-US".
-     */
-    numbro.setCulture = function(newCulture, fallbackCulture) {
-        var key = newCulture,
-            suffix = newCulture.split('-')[1],
-            matchingCulture = null;
-        if (!cultures[key]) {
-            if (suffix) {
-                Object.keys(cultures).forEach(function(language) {
-                    if (!matchingCulture && language.split('-')[1] === suffix) {
-                        matchingCulture = language;
-                    }
-                });
-            }
-
-            key = matchingCulture || fallbackCulture || 'en-US';
-        }
-        chooseCulture(key);
-    };
-
-    /**
-     * This function will load languages and then set the global language.  If
-     * no arguments are passed in, it will simply return the current global
-     * language key.
-     *
-     * @deprecated Since in version 1.6.0. It will be deleted in version 2.0
-     * `culture` should be used instead.
-     */
-    numbro.language = function(key, values) {
-        console.warn('`language` is deprecated since version 1.6.0. Use `culture` instead');
-
-        if (!key) {
-            return currentCulture;
-        }
-
-        if (key && !values) {
-            if (!languages[key]) {
-                throw new Error('Unknown language : ' + key);
-            }
-            chooseCulture(key);
-        }
-
-        if (values || !languages[key]) {
-            setCulture(key, values);
-        }
-
-        return numbro;
-    };
-
-    /**
-     * This function will load cultures and then set the global culture.  If
-     * no arguments are passed in, it will simply return the current global
-     * culture code.
-     */
-    numbro.culture = function(code, values) {
-        if (!code) {
-            return currentCulture;
-        }
-
-        if (code && !values) {
-            if (!cultures[code]) {
-                throw new Error('Unknown culture : ' + code);
-            }
-            chooseCulture(code);
-        }
-
-        if (values || !cultures[code]) {
-            setCulture(code, values);
-        }
-
-        return numbro;
-    };
-
-    /**
-     * This function provides access to the loaded language data.  If
-     * no arguments are passed in, it will simply return the current
-     * global language object.
-     *
-     * @deprecated Since in version 1.6.0. It will be deleted in version 2.0
-     * `culture` should be used instead.
-     */
-    numbro.languageData = function(key) {
-        console.warn('`languageData` is deprecated since version 1.6.0. Use `cultureData` instead');
-
-        if (!key) {
-            return languages[currentCulture];
-        }
-
-        if (!languages[key]) {
-            throw new Error('Unknown language : ' + key);
-        }
-
-        return languages[key];
-    };
-
-    /**
-     * This function provides access to the loaded culture data.  If
-     * no arguments are passed in, it will simply return the current
-     * global culture object.
-     */
-    numbro.cultureData = function(code) {
-        if (!code) {
-            return cultures[currentCulture];
-        }
-
-        if (!cultures[code]) {
-            throw new Error('Unknown culture : ' + code);
-        }
-
-        return cultures[code];
-    };
-
-    numbro.culture('en-US', enUS);
-
-    /**
-     * @deprecated Since in version 1.6.0. It will be deleted in version 2.0
-     * `cultures` should be used instead.
-     */
-    numbro.languages = function() {
-        console.warn('`languages` is deprecated since version 1.6.0. Use `cultures` instead');
-
-        return languages;
-    };
-
-    numbro.cultures = function() {
-        return cultures;
-    };
-
-    numbro.zeroFormat = function(format) {
-        zeroFormat = typeof(format) === 'string' ? format : null;
-    };
-
-    numbro.defaultFormat = function(format) {
-        defaultFormat = typeof(format) === 'string' ? format : '0.0';
-    };
-
-    numbro.defaultCurrencyFormat = function (format) {
-        defaultCurrencyFormat = typeof(format) === 'string' ? format : '0$';
-    };
-
-    numbro.validate = function(val, culture) {
-
-        var _decimalSep,
-            _thousandSep,
-            _currSymbol,
-            _valArray,
-            _abbrObj,
-            _thousandRegEx,
-            cultureData,
-            temp;
-
-        //coerce val to string
-        if (typeof val !== 'string') {
-            val += '';
-            if (console.warn) {
-                console.warn('Numbro.js: Value is not string. It has been co-erced to: ', val);
-            }
-        }
-
-        //trim whitespaces from either sides
-        val = val.trim();
-
-        //replace the initial '+' or '-' sign if present
-        val = val.replace(/^[+-]?/, '');
-
-        //if val is just digits return true
-        if ( !! val.match(/^\d+$/)) {
-            return true;
-        }
-
-        //if val is empty return false
-        if (val === '') {
-            return false;
-        }
-
-        //get the decimal and thousands separator from numbro.cultureData
-        try {
-            //check if the culture is understood by numbro. if not, default it to current culture
-            cultureData = numbro.cultureData(culture);
-        } catch (e) {
-            cultureData = numbro.cultureData(numbro.culture());
-        }
-
-        //setup the delimiters and currency symbol based on culture
-        _currSymbol = cultureData.currency.symbol;
-        _abbrObj = cultureData.abbreviations;
-        _decimalSep = cultureData.delimiters.decimal;
-        if (cultureData.delimiters.thousands === '.') {
-            _thousandSep = '\\.';
-        } else {
-            _thousandSep = cultureData.delimiters.thousands;
-        }
-
-        // validating currency symbol
-        temp = val.match(/^[^\d\.\,]+/);
-        if (temp !== null) {
-            val = val.substr(1);
-            if (temp[0] !== _currSymbol) {
-                return false;
-            }
-        }
-
-        //validating abbreviation symbol
-        temp = val.match(/[^\d]+$/);
-        if (temp !== null) {
-            val = val.slice(0, -1);
-            if (temp[0] !== _abbrObj.thousand && temp[0] !== _abbrObj.million &&
-                    temp[0] !== _abbrObj.billion && temp[0] !== _abbrObj.trillion) {
-                return false;
-            }
-        }
-
-        _thousandRegEx = new RegExp(_thousandSep + '{2}');
-
-        if (!val.match(/[^\d.,]/g)) {
-            _valArray = val.split(_decimalSep);
-            if (_valArray.length > 2) {
-                return false;
-            } else {
-                if (_valArray.length < 2) {
-                    return ( !! _valArray[0].match(/^\d+.*\d$/) && !_valArray[0].match(_thousandRegEx));
-                } else {
-                    if (_valArray[0] === '') {
-                        // for values without leading zero eg. .984
-                        return (!_valArray[0].match(_thousandRegEx) &&
-                            !!_valArray[1].match(/^\d+$/));
-
-                    } else if (_valArray[0].length === 1) {
-                        return ( !! _valArray[0].match(/^\d+$/) &&
-                            !_valArray[0].match(_thousandRegEx) &&
-                            !! _valArray[1].match(/^\d+$/));
-                    } else {
-                        return ( !! _valArray[0].match(/^\d+.*\d$/) &&
-                            !_valArray[0].match(_thousandRegEx) &&
-                            !! _valArray[1].match(/^\d+$/));
-                    }
-                }
-            }
-        }
-
-        return false;
-    };
-
-    /**
-     * * @deprecated Since in version 1.6.0. It will be deleted in version 2.0
-     * `loadCulturesInNode` should be used instead.
-     */
-    numbro.loadLanguagesInNode = function() {
-        console.warn('`loadLanguagesInNode` is deprecated since version 1.6.0. Use `loadCulturesInNode` instead');
-
-        numbro.loadCulturesInNode();
-    };
-
-    numbro.loadCulturesInNode = function() {
-        // TODO: Rename the folder in 2.0.0
-        var cultures = __webpack_require__(27);
-
-        for(var langLocaleCode in cultures) {
-            if(langLocaleCode) {
-                numbro.culture(langLocaleCode, cultures[langLocaleCode]);
-            }
-        }
-    };
-
-    /************************************
-        Helpers
-    ************************************/
-
-    function setCulture(code, values) {
-        cultures[code] = values;
-    }
-
-    function chooseCulture(code) {
-        currentCulture = code;
-        var defaults = cultures[code].defaults;
-        if (defaults && defaults.format) {
-            numbro.defaultFormat(defaults.format);
-        }
-        if (defaults && defaults.currencyFormat) {
-            numbro.defaultCurrencyFormat(defaults.currencyFormat);
-        }
-    }
-
-    function inNodejsRuntime() {
-        return (typeof process !== 'undefined') &&
-            (process.browser === undefined) &&
-            process.title &&
-            (
-                process.title.indexOf('node') !== -1 ||
-                process.title.indexOf('meteor-tool') > 0 ||
-                process.title === 'grunt' ||
-                process.title === 'gulp'
-            ) &&
-            ("function" !== 'undefined');
-    }
-
-    /************************************
-        Floating-point helpers
-    ************************************/
-
-    // The floating-point helper functions and implementation
-    // borrows heavily from sinful.js: http://guipn.github.io/sinful.js/
-
-    /**
-     * Array.prototype.reduce for browsers that don't support it
-     * https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/Reduce#Compatibility
-     */
-    if ('function' !== typeof Array.prototype.reduce) {
-        Array.prototype.reduce = function(callback, optInitialValue) {
-
-            if (null === this || 'undefined' === typeof this) {
-                // At the moment all modern browsers, that support strict mode, have
-                // native implementation of Array.prototype.reduce. For instance, IE8
-                // does not support strict mode, so this check is actually useless.
-                throw new TypeError('Array.prototype.reduce called on null or undefined');
-            }
-
-            if ('function' !== typeof callback) {
-                throw new TypeError(callback + ' is not a function');
-            }
-
-            var index,
-                value,
-                length = this.length >>> 0,
-                isValueSet = false;
-
-            if (1 < arguments.length) {
-                value = optInitialValue;
-                isValueSet = true;
-            }
-
-            for (index = 0; length > index; ++index) {
-                if (this.hasOwnProperty(index)) {
-                    if (isValueSet) {
-                        value = callback(value, this[index], index, this);
-                    } else {
-                        value = this[index];
-                        isValueSet = true;
-                    }
-                }
-            }
-
-            if (!isValueSet) {
-                throw new TypeError('Reduce of empty array with no initial value');
-            }
-
-            return value;
-        };
-    }
-
-
-    /**
-     * Computes the multiplier necessary to make x >= 1,
-     * effectively eliminating miscalculations caused by
-     * finite precision.
-     */
-    function multiplier(x) {
-        var parts = x.toString().split('.');
-        if (parts.length < 2) {
-            return 1;
-        }
-        return Math.pow(10, parts[1].length);
-    }
-
-    /**
-     * Given a variable number of arguments, returns the maximum
-     * multiplier that must be used to normalize an operation involving
-     * all of them.
-     */
-    function correctionFactor() {
-        var args = Array.prototype.slice.call(arguments);
-        return args.reduce(function(prev, next) {
-            var mp = multiplier(prev),
-                mn = multiplier(next);
-            return mp > mn ? mp : mn;
-        }, -Infinity);
-    }
-
-    /************************************
-        Numbro Prototype
-    ************************************/
-
-
-    numbro.fn = Numbro.prototype = {
-
-        clone: function() {
-            return numbro(this);
-        },
-
-        format: function(inputString, roundingFunction) {
-            return formatNumbro(this,
-                inputString ? inputString : defaultFormat,
-                (roundingFunction !== undefined) ? roundingFunction : Math.round
-            );
-        },
-
-        formatCurrency: function(inputString, roundingFunction) {
-            return formatCurrency(this,
-                cultures[currentCulture].currency.symbol,
-                inputString ? inputString : defaultCurrencyFormat,
-                (roundingFunction !== undefined) ? roundingFunction : Math.round
-            );
-        },
-
-        formatForeignCurrency: function(currencySymbol, inputString, roundingFunction) {
-            return formatForeignCurrency(this,
-                currencySymbol,
-                inputString ? inputString : defaultCurrencyFormat,
-                (roundingFunction !== undefined) ? roundingFunction : Math.round
-            );
-        },
-
-        unformat: function(inputString) {
-            if (typeof inputString === 'number') {
-                return inputString;
-            } else if (typeof inputString === 'string') {
-                var result = unformatNumbro(this, inputString);
-
-                // Any unparseable string (represented as NaN in the result) is
-                // converted into undefined.
-                return isNaN(result) ? undefined : result;
-            } else {
-                return undefined;
-            }
-        },
-
-        binaryByteUnits: function() {
-            return formatByteUnits(this._value, bytes.binary.suffixes, bytes.binary.scale).suffix;
-        },
-
-        byteUnits: function() {
-            return formatByteUnits(this._value, bytes.general.suffixes, bytes.general.scale).suffix;
-        },
-
-        decimalByteUnits: function() {
-            return formatByteUnits(this._value, bytes.decimal.suffixes, bytes.decimal.scale).suffix;
-        },
-
-        value: function() {
-            return this._value;
-        },
-
-        valueOf: function() {
-            return this._value;
-        },
-
-        set: function(value) {
-            this._value = Number(value);
-            return this;
-        },
-
-        add: function(value) {
-            var corrFactor = correctionFactor.call(null, this._value, value);
-
-            function cback(accum, curr) {
-                return accum + corrFactor * curr;
-            }
-            this._value = [this._value, value].reduce(cback, 0) / corrFactor;
-            return this;
-        },
-
-        subtract: function(value) {
-            var corrFactor = correctionFactor.call(null, this._value, value);
-
-            function cback(accum, curr) {
-                return accum - corrFactor * curr;
-            }
-            this._value = [value].reduce(cback, this._value * corrFactor) / corrFactor;
-            return this;
-        },
-
-        multiply: function(value) {
-            function cback(accum, curr) {
-                var corrFactor = correctionFactor(accum, curr),
-                    result = accum * corrFactor;
-                result *= curr * corrFactor;
-                result /= corrFactor * corrFactor;
-                return result;
-            }
-            this._value = [this._value, value].reduce(cback, 1);
-            return this;
-        },
-
-        divide: function(value) {
-            function cback(accum, curr) {
-                var corrFactor = correctionFactor(accum, curr);
-                return (accum * corrFactor) / (curr * corrFactor);
-            }
-            this._value = [this._value, value].reduce(cback);
-            return this;
-        },
-
-        difference: function(value) {
-            return Math.abs(numbro(this._value).subtract(value).value());
-        }
-
-    };
-
-    /************************************
-        Exposing Numbro
-    ************************************/
-
-    if (inNodejsRuntime()) {
-        //Todo: Rename the folder in 2.0.0
-        numbro.loadCulturesInNode();
-    }
-
-    // CommonJS module is defined
-    if (hasModule) {
-        module.exports = numbro;
-    } else {
-        /*global ender:false */
-        if (typeof ender === 'undefined') {
-            // here, `this` means `window` in the browser, or `global` on the server
-            // add `numbro` as a global object via a string identifier,
-            // for Closure Compiler 'advanced' mode
-            this.numbro = numbro;
-        }
-
-        /*global define:false */
-        if (true) {
-            !(__WEBPACK_AMD_DEFINE_ARRAY__ = [], __WEBPACK_AMD_DEFINE_RESULT__ = (function() {
-                return numbro;
-            }).apply(exports, __WEBPACK_AMD_DEFINE_ARRAY__),
-				__WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
-        }
-    }
-
-}.call(typeof window === 'undefined' ? this : window));
-
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(10)))
 
 /***/ }),
 /* 10 */
-/***/ (function(module, exports) {
-
-// shim for using process in browser
-var process = module.exports = {};
-
-// cached from whatever global is present so that test runners that stub it
-// don't break things.  But we need to wrap it in a try catch in case it is
-// wrapped in strict mode code which doesn't define any globals.  It's inside a
-// function because try/catches deoptimize in certain engines.
-
-var cachedSetTimeout;
-var cachedClearTimeout;
-
-function defaultSetTimout() {
-    throw new Error('setTimeout has not been defined');
-}
-function defaultClearTimeout () {
-    throw new Error('clearTimeout has not been defined');
-}
-(function () {
-    try {
-        if (typeof setTimeout === 'function') {
-            cachedSetTimeout = setTimeout;
-        } else {
-            cachedSetTimeout = defaultSetTimout;
-        }
-    } catch (e) {
-        cachedSetTimeout = defaultSetTimout;
-    }
-    try {
-        if (typeof clearTimeout === 'function') {
-            cachedClearTimeout = clearTimeout;
-        } else {
-            cachedClearTimeout = defaultClearTimeout;
-        }
-    } catch (e) {
-        cachedClearTimeout = defaultClearTimeout;
-    }
-} ())
-function runTimeout(fun) {
-    if (cachedSetTimeout === setTimeout) {
-        //normal enviroments in sane situations
-        return setTimeout(fun, 0);
-    }
-    // if setTimeout wasn't available but was latter defined
-    if ((cachedSetTimeout === defaultSetTimout || !cachedSetTimeout) && setTimeout) {
-        cachedSetTimeout = setTimeout;
-        return setTimeout(fun, 0);
-    }
-    try {
-        // when when somebody has screwed with setTimeout but no I.E. maddness
-        return cachedSetTimeout(fun, 0);
-    } catch(e){
-        try {
-            // When we are in I.E. but the script has been evaled so I.E. doesn't trust the global object when called normally
-            return cachedSetTimeout.call(null, fun, 0);
-        } catch(e){
-            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error
-            return cachedSetTimeout.call(this, fun, 0);
-        }
-    }
-
-
-}
-function runClearTimeout(marker) {
-    if (cachedClearTimeout === clearTimeout) {
-        //normal enviroments in sane situations
-        return clearTimeout(marker);
-    }
-    // if clearTimeout wasn't available but was latter defined
-    if ((cachedClearTimeout === defaultClearTimeout || !cachedClearTimeout) && clearTimeout) {
-        cachedClearTimeout = clearTimeout;
-        return clearTimeout(marker);
-    }
-    try {
-        // when when somebody has screwed with setTimeout but no I.E. maddness
-        return cachedClearTimeout(marker);
-    } catch (e){
-        try {
-            // When we are in I.E. but the script has been evaled so I.E. doesn't  trust the global object when called normally
-            return cachedClearTimeout.call(null, marker);
-        } catch (e){
-            // same as above but when it's a version of I.E. that must have the global object for 'this', hopfully our context correct otherwise it will throw a global error.
-            // Some versions of I.E. have different rules for clearTimeout vs setTimeout
-            return cachedClearTimeout.call(this, marker);
-        }
-    }
-
-
-
-}
-var queue = [];
-var draining = false;
-var currentQueue;
-var queueIndex = -1;
-
-function cleanUpNextTick() {
-    if (!draining || !currentQueue) {
-        return;
-    }
-    draining = false;
-    if (currentQueue.length) {
-        queue = currentQueue.concat(queue);
-    } else {
-        queueIndex = -1;
-    }
-    if (queue.length) {
-        drainQueue();
-    }
-}
-
-function drainQueue() {
-    if (draining) {
-        return;
-    }
-    var timeout = runTimeout(cleanUpNextTick);
-    draining = true;
-
-    var len = queue.length;
-    while(len) {
-        currentQueue = queue;
-        queue = [];
-        while (++queueIndex < len) {
-            if (currentQueue) {
-                currentQueue[queueIndex].run();
-            }
-        }
-        queueIndex = -1;
-        len = queue.length;
-    }
-    currentQueue = null;
-    draining = false;
-    runClearTimeout(timeout);
-}
-
-process.nextTick = function (fun) {
-    var args = new Array(arguments.length - 1);
-    if (arguments.length > 1) {
-        for (var i = 1; i < arguments.length; i++) {
-            args[i - 1] = arguments[i];
-        }
-    }
-    queue.push(new Item(fun, args));
-    if (queue.length === 1 && !draining) {
-        runTimeout(drainQueue);
-    }
-};
-
-// v8 likes predictible objects
-function Item(fun, array) {
-    this.fun = fun;
-    this.array = array;
-}
-Item.prototype.run = function () {
-    this.fun.apply(null, this.array);
-};
-process.title = 'browser';
-process.browser = true;
-process.env = {};
-process.argv = [];
-process.version = ''; // empty string to avoid regexp issues
-process.versions = {};
-
-function noop() {}
-
-process.on = noop;
-process.addListener = noop;
-process.once = noop;
-process.off = noop;
-process.removeListener = noop;
-process.removeAllListeners = noop;
-process.emit = noop;
-process.prependListener = noop;
-process.prependOnceListener = noop;
-
-process.listeners = function (name) { return [] }
-
-process.binding = function (name) {
-    throw new Error('process.binding is not supported');
-};
-
-process.cwd = function () { return '/' };
-process.chdir = function (dir) {
-    throw new Error('process.chdir is not supported');
-};
-process.umask = function() { return 0; };
-
-
-/***/ }),
-/* 11 */
 /***/ (function(module, exports, __webpack_require__) {
 
 (function (window, factory) {
@@ -5993,8 +4743,8 @@ function isFunction(arg) {
 }
 
 
-function isNumber(arg) {
-  return typeof arg === 'number' && arg === arg;
+function isNumber(num) {
+  return (typeof num === 'number') ? num - num === 0 : false;
 }
 
 
@@ -6017,8 +4767,6 @@ jStat.fn = jStat.prototype;
 // By separating the initializer from the constructor it's easier to handle
 // always returning a new instance whether "new" was used or not.
 jStat._init = function _init(args) {
-  var i;
-
   // If first argument is an array, must be vector or matrix.
   if (isArray(args[0])) {
     // Check if matrix.
@@ -6072,6 +4820,14 @@ jStat.utils = {
 };
 
 
+jStat._random_fn = Math.random;
+jStat.setRandom = function setRandom(fn) {
+  if (typeof fn !== 'function')
+    throw new TypeError('fn is not a function');
+  jStat._random_fn = fn;
+};
+
+
 // Easily extend the jStat object.
 // TODO: is this seriously necessary?
 jStat.extend = function extend(obj) {
@@ -6083,7 +4839,7 @@ jStat.extend = function extend(obj) {
     return this;
   }
 
-  for (var i = 1; i < arguments.length; i++) {
+  for (i = 1; i < arguments.length; i++) {
     for (j in arguments[i])
       obj[j] = arguments[i][j];
   }
@@ -6135,7 +4891,7 @@ jStat.rowa = function rowa(arr, i) {
 // columns
 jStat.col = function col(arr, index) {
   if (isArray(index)) {
-    var submat = jStat.arange(arr.length).map(function(i) {
+    var submat = jStat.arange(arr.length).map(function() {
       return new Array(index.length);
     });
     index.forEach(function(ind, i){
@@ -6190,7 +4946,7 @@ jStat.transpose = function transpose(arr) {
   rows = arr.length;
   cols = arr[0].length;
 
-  for (var i = 0; i < cols; i++) {
+  for (i = 0; i < cols; i++) {
     objArr = new Array(rows);
     for (j = 0; j < rows; j++)
       objArr[j] = arr[j][i];
@@ -6266,7 +5022,7 @@ jStat.create = function  create(rows, cols, func) {
     cols = rows;
   }
 
-  for (var i = 0; i < rows; i++) {
+  for (i = 0; i < rows; i++) {
     res[i] = new Array(cols);
     for (j = 0; j < cols; j++)
       res[i][j] = func(i, j);
@@ -6302,7 +5058,7 @@ jStat.ones = function ones(rows, cols) {
 jStat.rand = function rand(rows, cols) {
   if (!isNumber(cols))
     cols = rows;
-  return jStat.create(rows, cols, Math.random);
+  return jStat.create(rows, cols, jStat._random_fn);
 };
 
 
@@ -6319,7 +5075,6 @@ jStat.identity = function identity(rows, cols) {
 
 // Tests whether a matrix is symmetric
 jStat.symmetric = function symmetric(arr) {
-  var issymmetric = true;
   var size = arr.length;
   var row, col;
 
@@ -6370,6 +5125,7 @@ jStat.seq = function seq(min, max, length, func) {
 // arange(5,1,-1) -> [5,4,3,2]
 jStat.arange = function arange(start, end, step) {
   var rl = [];
+  var i;
   step = step || 1;
   if (end === undefined) {
     end = start;
@@ -6438,23 +5194,24 @@ jStat.slice = (function(){
   }
 
   function slice(list, rcSlice) {
+    var colSlice, rowSlice;
     rcSlice = rcSlice || {};
     if (isNumber(rcSlice.row)) {
       if (isNumber(rcSlice.col))
         return list[rcSlice.row][rcSlice.col];
       var row = jStat.rowa(list, rcSlice.row);
-      var colSlice = rcSlice.col || {};
+      colSlice = rcSlice.col || {};
       return _slice(row, colSlice.start, colSlice.end, colSlice.step);
     }
 
     if (isNumber(rcSlice.col)) {
       var col = jStat.cola(list, rcSlice.col);
-      var rowSlice = rcSlice.row || {};
+      rowSlice = rcSlice.row || {};
       return _slice(col, rowSlice.start, rowSlice.end, rowSlice.step);
     }
 
-    var rowSlice = rcSlice.row || {};
-    var colSlice = rcSlice.col || {};
+    rowSlice = rcSlice.row || {};
+    colSlice = rcSlice.col || {};
     var rows = _slice(list, rowSlice.start, rowSlice.end, rowSlice.step);
     return rows.map(function(row) {
       return _slice(row, colSlice.start, colSlice.end, colSlice.step);
@@ -6469,6 +5226,7 @@ jStat.slice = (function(){
 // sliceAssign(A,{row:{start:1},col:{start:1}},[[0,0],[0,0]])
 // A=[[1,2,3],[4,0,0],[7,0,0]]
 jStat.sliceAssign = function sliceAssign(A, rcSlice, B) {
+  var nl, ml;
   if (isNumber(rcSlice.row)) {
     if (isNumber(rcSlice.col))
       return A[rcSlice.row][rcSlice.col] = B;
@@ -6476,7 +5234,7 @@ jStat.sliceAssign = function sliceAssign(A, rcSlice, B) {
     rcSlice.col.start = rcSlice.col.start || 0;
     rcSlice.col.end = rcSlice.col.end || A[0].length;
     rcSlice.col.step = rcSlice.col.step || 1;
-    var nl = jStat.arange(rcSlice.col.start,
+    nl = jStat.arange(rcSlice.col.start,
                           Math.min(A.length, rcSlice.col.end),
                           rcSlice.col.step);
     var m = rcSlice.row;
@@ -6491,7 +5249,7 @@ jStat.sliceAssign = function sliceAssign(A, rcSlice, B) {
     rcSlice.row.start = rcSlice.row.start || 0;
     rcSlice.row.end = rcSlice.row.end || A.length;
     rcSlice.row.step = rcSlice.row.step || 1;
-    var ml = jStat.arange(rcSlice.row.start,
+    ml = jStat.arange(rcSlice.row.start,
                           Math.min(A[0].length, rcSlice.row.end),
                           rcSlice.row.step);
     var n = rcSlice.col;
@@ -6510,10 +5268,10 @@ jStat.sliceAssign = function sliceAssign(A, rcSlice, B) {
   rcSlice.col.start = rcSlice.col.start || 0;
   rcSlice.col.end = rcSlice.col.end || A[0].length;
   rcSlice.col.step = rcSlice.col.step || 1;
-  var ml = jStat.arange(rcSlice.row.start,
+  ml = jStat.arange(rcSlice.row.start,
                         Math.min(A.length, rcSlice.row.end),
                         rcSlice.row.step);
-  var nl = jStat.arange(rcSlice.col.start,
+  nl = jStat.arange(rcSlice.col.start,
                         Math.min(A[0].length, rcSlice.col.end),
                         rcSlice.col.step);
   ml.forEach(function(m, i) {
@@ -6633,8 +5391,9 @@ jProto.alter = function alter(func) {
 // Extend prototype with simple shortcut methods.
 (function(funcs) {
   for (var i = 0; i < funcs.length; i++) (function(passfunc) {
-    jProto[passfunc] = new Function(
-        'return jStat(jStat.' + passfunc + '.apply(null, arguments));');
+    jProto[passfunc] = function() {
+      return jStat(jStat[passfunc].apply(null, arguments));
+    };
   })(funcs[i]);
 })('create zeros ones rand identity'.split(' '));
 
@@ -6788,7 +5547,7 @@ jStat.diff = function diff(arr) {
   var diffs = [];
   var arrLen = arr.length;
   var i;
-  for (var i = 1; i < arrLen; i++)
+  for (i = 1; i < arrLen; i++)
     diffs.push(arr[i] - arr[i - 1]);
   return diffs;
 };
@@ -6799,13 +5558,14 @@ jStat.rank = function (arr) {
   var arrlen = arr.length;
   var sorted = arr.slice().sort(ascNum);
   var ranks = new Array(arrlen);
+  var val;
   for (var i = 0; i < arrlen; i++) {
     var first = sorted.indexOf(arr[i]);
     var last = sorted.lastIndexOf(arr[i]);
     if (first === last) {
-      var val = first;
+      val = first;
     } else {
-      var val = (first + last) / 2;
+      val = (first + last) / 2;
     }
     ranks[i] = val + 1;
   }
@@ -6825,7 +5585,7 @@ jStat.mode = function mode(arr) {
   var mode_arr = [];
   var i;
 
-  for (var i = 0; i < arrLen; i++) {
+  for (i = 0; i < arrLen; i++) {
     if (_arr[i] === _arr[i + 1]) {
       count++;
     } else {
@@ -6941,7 +5701,7 @@ jStat.quantiles = function quantiles(arr, quantilesArray, alphap, betap) {
   if (typeof betap === 'undefined')
     betap = 3 / 8;
 
-  for (var i = 0; i < quantilesArray.length; i++) {
+  for (i = 0; i < quantilesArray.length; i++) {
     p = quantilesArray[i];
     m = alphap + p * (1 - alphap - betap);
     aleph = n * p + m;
@@ -6953,21 +5713,19 @@ jStat.quantiles = function quantiles(arr, quantilesArray, alphap, betap) {
   return quantileVals;
 };
 
-// Returns the k-th percentile of values in a range, where k is in the
-// range 0..1, exclusive.
-jStat.percentile = function percentile(arr, k) {
+// Return the k-th percentile of values in a range, where k is in the range 0..1, inclusive.
+// Passing true for the exclusive parameter excludes both endpoints of the range.
+jStat.percentile = function percentile(arr, k, exclusive) {
   var _arr = arr.slice().sort(ascNum);
-  var realIndex = k * (_arr.length - 1);
+  var realIndex = k * (_arr.length + (exclusive ? 1 : -1)) + (exclusive ? 0 : 1);
   var index = parseInt(realIndex);
   var frac = realIndex - index;
-
   if (index + 1 < _arr.length) {
-    return _arr[index] * (1 - frac) + _arr[index + 1] * frac;
+    return _arr[index - 1] + frac * (_arr[index] - _arr[index - 1]);
   } else {
-    return _arr[index];
+    return _arr[index - 1];
   }
 }
-
 
 // The percentile rank of score in a given array. Returns the percentage
 // of all values in the input array that are less than (kind='strict') or
@@ -6981,7 +5739,7 @@ jStat.percentileOfScore = function percentileOfScore(arr, score, kind) {
   if (kind === 'strict')
     strict = true;
 
-  for (var i = 0; i < len; i++) {
+  for (i = 0; i < len; i++) {
     value = arr[i];
     if ((strict && value < score) ||
         (!strict && value <= score)) {
@@ -6994,17 +5752,17 @@ jStat.percentileOfScore = function percentileOfScore(arr, score, kind) {
 
 
 // Histogram (bin count) data
-jStat.histogram = function histogram(arr, bins) {
+jStat.histogram = function histogram(arr, binCnt) {
+  binCnt = binCnt || 4;
   var first = jStat.min(arr);
-  var binCnt = bins || 4;
   var binWidth = (jStat.max(arr) - first) / binCnt;
   var len = arr.length;
   var bins = [];
   var i;
 
-  for (var i = 0; i < binCnt; i++)
+  for (i = 0; i < binCnt; i++)
     bins[i] = 0;
-  for (var i = 0; i < len; i++)
+  for (i = 0; i < len; i++)
     bins[Math.min(Math.floor(((arr[i] - first) / binWidth)), binCnt - 1)] += 1;
 
   return bins;
@@ -7019,7 +5777,7 @@ jStat.covariance = function covariance(arr1, arr2) {
   var sq_dev = new Array(arr1Len);
   var i;
 
-  for (var i = 0; i < arr1Len; i++)
+  for (i = 0; i < arr1Len; i++)
     sq_dev[i] = (arr1[i] - u) * (arr2[i] - v);
 
   return jStat.sum(sq_dev) / (arr1Len - 1);
@@ -7157,11 +5915,12 @@ var jProto = jStat.prototype;
       var i = 0;
       var tmpthis = this;
       var args = Array.prototype.slice.call(arguments);
+      var callbackFunction;
 
       // If the last argument is a function, we assume it's a callback; we
       // strip the callback out and call the function again.
       if (isFunction(args[args.length - 1])) {
-        var callbackFunction = args[args.length - 1];
+        callbackFunction = args[args.length - 1];
         var argsToPass = args.slice(0, args.length - 1);
 
         setTimeout(function() {
@@ -7172,7 +5931,7 @@ var jProto = jStat.prototype;
 
       // Otherwise we curry the function args and call normally.
       } else {
-        var callbackFunction = undefined;
+        callbackFunction = undefined;
         var curriedFunction = function curriedFunction(vector) {
           return jStat[passfunc].apply(tmpthis, [vector].concat(args));
         }
@@ -7212,6 +5971,45 @@ jStat.gammaln = function gammaln(x) {
   return Math.log(2.5066282746310005 * ser / xx) - tmp;
 };
 
+/*
+ * log-gamma function to support poisson distribution sampling. The
+ * algorithm comes from SPECFUN by Shanjie Zhang and Jianming Jin and their
+ * book "Computation of Special Functions", 1996, John Wiley & Sons, Inc.
+ */
+jStat.loggam = function loggam(x) {
+  var x0, x2, xp, gl, gl0;
+  var k, n;
+
+  var a = [8.333333333333333e-02, -2.777777777777778e-03,
+          7.936507936507937e-04, -5.952380952380952e-04,
+          8.417508417508418e-04, -1.917526917526918e-03,
+          6.410256410256410e-03, -2.955065359477124e-02,
+          1.796443723688307e-01, -1.39243221690590e+00];
+  x0 = x;
+  n = 0;
+  if ((x == 1.0) || (x == 2.0)) {
+      return 0.0;
+  }
+  if (x <= 7.0) {
+      n = Math.floor(7 - x);
+      x0 = x + n;
+  }
+  x2 = 1.0 / (x0 * x0);
+  xp = 2 * Math.PI;
+  gl0 = a[9];
+  for (k = 8; k >= 0; k--) {
+      gl0 *= x2;
+      gl0 += a[k];
+  }
+  gl = gl0 / x0 + 0.5 * Math.log(xp) + (x0 - 0.5) * Math.log(x0) - x0;
+  if (x <= 7.0) {
+      for (k = 1; k <= n; k++) {
+          gl -= Math.log(x0 - 1.0);
+          x0 -= 1.0;
+      }
+  }
+  return gl;
+}
 
 // gamma of x
 jStat.gammafn = function gammafn(x) {
@@ -7227,7 +6025,7 @@ jStat.gammafn = function gammafn(x) {
   var xden = 0;
   var xnum = 0;
   var y = x;
-  var i, z, yi, res, sum, ysq;
+  var i, z, yi, res;
   if (y <= 0) {
     res = y % 1 + 3.6e-16;
     if (res) {
@@ -7243,7 +6041,7 @@ jStat.gammafn = function gammafn(x) {
   } else {
     z = (y -= n = (y | 0) - 1) - 1;
   }
-  for (var i = 0; i < 8; ++i) {
+  for (i = 0; i < 8; ++i) {
     xnum = (xnum + p[i]) * z;
     xden = xden * z + q[i];
   }
@@ -7251,7 +6049,7 @@ jStat.gammafn = function gammafn(x) {
   if (yi < y) {
     res /= yi;
   } else if (yi > y) {
-    for (var i = 0; i < n; ++i) {
+    for (i = 0; i < n; ++i) {
       res *= y;
       y++;
     }
@@ -7283,7 +6081,7 @@ jStat.lowRegGamma = function lowRegGamma(a, x) {
   var i = 1;
   // calculate maximum number of itterations required for a
   var ITMAX = -~(Math.log((a >= 1) ? a : 1 / a) * 8.5 + a * 0.4 + 17);
-  var an, endval;
+  var an;
 
   if (x < 0 || a <= 0) {
     return NaN;
@@ -7588,14 +6386,14 @@ jStat.ibeta = function ibeta(x, a, b) {
 // Returns a normal deviate (mu=0, sigma=1).
 // If n and m are specified it returns a object of normal deviates.
 jStat.randn = function randn(n, m) {
-  var u, v, x, y, q, mat;
+  var u, v, x, y, q;
   if (!m)
     m = n;
   if (n)
     return jStat.create(n, m, function() { return jStat.randn(); });
   do {
-    u = Math.random();
-    v = 1.7156 * (Math.random() - 0.5);
+    u = jStat._random_fn();
+    v = 1.7156 * (jStat._random_fn() - 0.5);
     x = u - 0.449871;
     y = Math.abs(v) + 0.386595;
     q = x * x + y * (0.19600 * y - 0.25472 * x);
@@ -7627,7 +6425,7 @@ jStat.randg = function randg(shape, n, m) {
       v = 1 + a2 * x;
     } while(v <= 0);
     v = v * v * v;
-    u = Math.random();
+    u = jStat._random_fn();
   } while(u > 1 - 0.331 * Math.pow(x, 4) &&
           Math.log(u) > 0.5 * x*x + a1 * (1 - v + Math.log(v)));
   // alpha > 1
@@ -7635,7 +6433,7 @@ jStat.randg = function randg(shape, n, m) {
     return a1 * v;
   // alpha < 1
   do {
-    u = Math.random();
+    u = jStat._random_fn();
   } while(u === 0);
   return Math.pow(u, 1 / oalph) * a1 * v;
 };
@@ -7859,11 +6657,11 @@ jStat.extend(jStat.cauchy, {
     return local + scale * Math.tan(Math.PI * (p - 0.5));
   },
 
-  median: function median(local, scale) {
+  median: function median(local/*, scale*/) {
     return local;
   },
 
-  mode: function mode(local, scale) {
+  mode: function mode(local/*, scale*/) {
     return local;
   },
 
@@ -7941,12 +6739,12 @@ jStat.extend(jStat.exponential, {
     return (1 / rate) * Math.log(2);
   },
 
-  mode: function mode(rate) {
+  mode: function mode(/*rate*/) {
     return 0;
   },
 
   sample: function sample(rate) {
-    return -1 / rate * Math.log(Math.random());
+    return -1 / rate * Math.log(jStat._random_fn());
   },
 
   variance : function(rate) {
@@ -8072,7 +6870,7 @@ jStat.extend(jStat.kumaraswamy, {
     return Math.pow((alpha - 1) / (alpha * beta - 1), 1 / alpha);
   },
 
-  variance: function variance(alpha, beta) {
+  variance: function variance(/*alpha, beta*/) {
     throw new Error('variance not yet implemented');
     // TODO: complete this
   }
@@ -8105,7 +6903,7 @@ jStat.extend(jStat.lognormal, {
     return Math.exp(mu + sigma * sigma / 2);
   },
 
-  median: function median(mu, sigma) {
+  median: function median(mu/*, sigma*/) {
     return Math.exp(mu);
   },
 
@@ -8197,15 +6995,15 @@ jStat.extend(jStat.normal, {
     return -1.41421356237309505 * std * jStat.erfcinv(2 * p) + mean;
   },
 
-  mean : function(mean, std) {
+  mean : function(mean/*, std*/) {
     return mean;
   },
 
-  median: function median(mean, std) {
+  median: function median(mean/*, std*/) {
     return mean;
   },
 
-  mode: function (mean, std) {
+  mode: function (mean/*, std*/) {
     return mean;
   },
 
@@ -8248,7 +7046,7 @@ jStat.extend(jStat.pareto, {
     return scale * (shape * Math.SQRT2);
   },
 
-  mode: function mode(scale, shape) {
+  mode: function mode(scale/*, shape*/) {
     return scale;
   },
 
@@ -8285,11 +7083,11 @@ jStat.extend(jStat.studentt, {
     return (dof > 1) ? 0 : undefined;
   },
 
-  median: function median(dof) {
+  median: function median(/*dof*/) {
     return 0;
   },
 
-  mode: function mode(dof) {
+  mode: function mode(/*dof*/) {
     return 0;
   },
 
@@ -8336,7 +7134,7 @@ jStat.extend(jStat.weibull, {
   },
 
   sample: function sample(scale, shape) {
-    return scale * Math.pow(-Math.log(Math.random()), 1 / shape);
+    return scale * Math.pow(-Math.log(jStat._random_fn()), 1 / shape);
   },
 
   variance: function variance(scale, shape) {
@@ -8373,12 +7171,12 @@ jStat.extend(jStat.uniform, {
     return jStat.mean(a, b);
   },
 
-  mode: function mode(a, b) {
+  mode: function mode(/*a, b*/) {
     throw new Error('mode is not yet implemented');
   },
 
   sample: function sample(a, b) {
-    return (a / 2 + b / 2) + (b / 2 - a / 2) * (2 * Math.random() - 1);
+    return (a / 2 + b / 2) + (b / 2 - a / 2) * (2 * jStat._random_fn() - 1);
   },
 
   variance: function variance(a, b) {
@@ -8386,6 +7184,34 @@ jStat.extend(jStat.uniform, {
   }
 });
 
+
+// Got this from http://www.math.ucla.edu/~tom/distributions/binomial.html
+function betinc(x, a, b, eps) {
+  var a0 = 0;
+  var b0 = 1;
+  var a1 = 1;
+  var b1 = 1;
+  var m9 = 0;
+  var a2 = 0;
+  var c9;
+
+  while (Math.abs((a1 - a2) / a1) > eps) {
+    a2 = a1;
+    c9 = -(a + m9) * (a + b + m9) * x / (a + 2 * m9) / (a + 2 * m9 + 1);
+    a0 = a1 + c9 * a0;
+    b0 = b1 + c9 * b0;
+    m9 = m9 + 1;
+    c9 = m9 * (b - m9) * x / (a + 2 * m9 - 1) / (a + 2 * m9);
+    a1 = a0 + c9 * a1;
+    b1 = b0 + c9 * b1;
+    a0 = a0 / b1;
+    b0 = b0 / b1;
+    a1 = a1 / b1;
+    b1 = 1;
+  }
+
+  return a1 / a;
+}
 
 
 // extend uniform function with static methods
@@ -8397,18 +7223,30 @@ jStat.extend(jStat.binomial, {
   },
 
   cdf: function cdf(x, n, p) {
-    var binomarr = [],
-    k = 0;
-    if (x < 0) {
+    var betacdf;
+    var eps = 1e-10;
+
+    if (x < 0)
       return 0;
-    }
-    if (x < n) {
-      for (; k <= x; k++) {
-        binomarr[ k ] = jStat.binomial.pdf(k, n, p);
-      }
-      return jStat.sum(binomarr);
-    }
-    return 1;
+    if (x >= n)
+      return 1;
+    if (p < 0 || p > 1 || n <= 0)
+      return NaN;
+
+    x = Math.floor(x);
+    var z = p;
+    var a = x + 1;
+    var b = n - x;
+    var s = a + b;
+    var bt = Math.exp(jStat.gammaln(s) - jStat.gammaln(b) -
+                      jStat.gammaln(a) + a * Math.log(z) + b * Math.log(1 - z));
+
+    if (z < (a + 1) / (s + 2))
+      betacdf = bt * betinc(z, a, b, eps);
+    else
+      betacdf = 1 - bt * betinc(1 - z, b, a, eps);
+
+    return Math.round((1 - betacdf) * (1 / eps)) / (1 / eps);
   }
 });
 
@@ -8650,13 +7488,51 @@ jStat.extend(jStat.poisson, {
     return l;
   },
 
-  sample: function sample(l) {
+  sampleSmall: function sampleSmall(l) {
     var p = 1, k = 0, L = Math.exp(-l);
     do {
       k++;
-      p *= Math.random();
+      p *= jStat._random_fn();
     } while (p > L);
     return k - 1;
+  },
+
+  sampleLarge: function sampleLarge(l) {
+    var lam = l;
+    var k;
+    var U, V, slam, loglam, a, b, invalpha, vr, us;
+
+    slam = Math.sqrt(lam);
+    loglam = Math.log(lam);
+    b = 0.931 + 2.53 * slam;
+    a = -0.059 + 0.02483 * b;
+    invalpha = 1.1239 + 1.1328 / (b - 3.4);
+    vr = 0.9277 - 3.6224 / (b - 2);
+
+    while (1) {
+      U = Math.random() - 0.5;
+      V = Math.random();
+      us = 0.5 - Math.abs(U);
+      k = Math.floor((2 * a / us + b) * U + lam + 0.43);
+      if ((us >= 0.07) && (V <= vr)) {
+          return k;
+      }
+      if ((k < 0) || ((us < 0.013) && (V > us))) {
+          continue;
+      }
+      /* log(V) == log(0.0) ok here */
+      /* if U==0.0 so that us==0.0, log is ok since always returns */
+      if ((Math.log(V) + Math.log(invalpha) - Math.log(a / (us * us) + b)) <= (-lam + k * loglam - jStat.loggam(k + 1))) {
+          return k;
+      }
+    }
+  },
+
+  sample: function sample(l) {
+    if (l < 10)
+      return this.sampleSmall(l);
+    else
+      return this.sampleLarge(l);
   }
 });
 
@@ -8720,7 +7596,7 @@ jStat.extend(jStat.triangular, {
   },
 
   sample: function sample(a, b, c) {
-    var u = Math.random();
+    var u = jStat._random_fn();
     if (u < ((c - a) / (b - a)))
       return a + Math.sqrt(u * (b - a) * (c - a))
     return b - Math.sqrt((1 - u) * (b - a) * (b - c));
@@ -8765,7 +7641,7 @@ jStat.extend(jStat.arcsine, {
     return (a + b) / 2;
   },
 
-  mode: function mode(a, b) {
+  mode: function mode(/*a, b*/) {
     throw new Error('mode is not yet implemented');
   },
 
@@ -8798,15 +7674,15 @@ jStat.extend(jStat.laplace, {
     }
   },
 
-  mean: function(mu, b) {
+  mean: function(mu/*, b*/) {
     return mu;
   },
 
-  median: function(mu, b) {
+  median: function(mu/*, b*/) {
     return mu;
   },
 
-  mode: function(mu, b) {
+  mode: function(mu/*, b*/) {
     return mu;
   },
 
@@ -8815,7 +7691,7 @@ jStat.extend(jStat.laplace, {
   },
 
   sample: function sample(mu, b) {
-    var u = Math.random() - 0.5;
+    var u = jStat._random_fn() - 0.5;
 
     return mu - (b * laplaceSign(u) * Math.log(1 - (2 * Math.abs(u))));
   }
@@ -9329,10 +8205,11 @@ jStat.extend({
   // Note: this function returns a matrix, not a jStat object
   aug: function aug(a, b) {
     var newarr = [];
-    for (var i = 0; i < a.length; i++) {
+    var i;
+    for (i = 0; i < a.length; i++) {
       newarr.push(a[i].slice());
     }
-    for (var i = 0; i < newarr.length; i++) {
+    for (i = 0; i < newarr.length; i++) {
       push.apply(newarr[i], b[i]);
     }
     return newarr;
@@ -9378,7 +8255,7 @@ jStat.extend({
     for (; i < alend; i++) {
       vals[i] = 1;
     }
-    for (var i = 0; i < alen; i++) {
+    for (i = 0; i < alen; i++) {
       for (j = 0; j < alen; j++) {
         vals[(mrow < 0) ? mrow + alen : mrow ] *= a[i][j];
         vals[(mcol < alen) ? mcol + alen : mcol ] *= a[i][j];
@@ -9388,7 +8265,7 @@ jStat.extend({
       mrow = --rowshift - alen + 1;
       mcol = --colshift;
     }
-    for (var i = 0; i < alen; i++) {
+    for (i = 0; i < alen; i++) {
       result += vals[i];
     }
     for (; i < alend; i++) {
@@ -9408,7 +8285,7 @@ jStat.extend({
     maug, pivot, temp, k;
     a = jStat.aug(a, b);
     maug = a[0].length;
-    for(var i = 0; i < n; i++) {
+    for(i = 0; i < n; i++) {
       pivot = a[i][i];
       j = i;
       for (k = i + 1; k < m; k++) {
@@ -9431,7 +8308,7 @@ jStat.extend({
         }
       }
     }
-    for (var i = n - 1; i >= 0; i--) {
+    for (i = n - 1; i >= 0; i--) {
       sum = 0;
       for (j = i + 1; j<= n - 1; j++) {
         sum = sum + x[j] * a[i][j];
@@ -9442,37 +8319,38 @@ jStat.extend({
   },
 
   gauss_jordan: function gauss_jordan(a, b) {
-    var m = jStat.aug(a, b),
-    h = m.length,
-    w = m[0].length;
+    var m = jStat.aug(a, b);
+    var h = m.length;
+    var w = m[0].length;
     var c = 0;
+    var x, y, y2;
     // find max pivot
-    for (var y = 0; y < h; y++) {
+    for (y = 0; y < h; y++) {
       var maxrow = y;
-      for (var y2 = y+1; y2 < h; y2++) {
+      for (y2 = y+1; y2 < h; y2++) {
         if (Math.abs(m[y2][y]) > Math.abs(m[maxrow][y]))
           maxrow = y2;
       }
       var tmp = m[y];
       m[y] = m[maxrow];
       m[maxrow] = tmp
-      for (var y2 = y+1; y2 < h; y2++) {
+      for (y2 = y+1; y2 < h; y2++) {
         c = m[y2][y] / m[y][y];
-        for (var x = y; x < w; x++) {
+        for (x = y; x < w; x++) {
           m[y2][x] -= m[y][x] * c;
         }
       }
     }
     // backsubstitute
-    for (var y = h-1; y >= 0; y--) {
+    for (y = h-1; y >= 0; y--) {
       c = m[y][y];
-      for (var y2 = 0; y2 < y; y2++) {
-        for (var x = w-1; x > y-1; x--) {
+      for (y2 = 0; y2 < y; y2++) {
+        for (x = w-1; x > y-1; x--) {
           m[y2][x] -= m[y][x] * m[y2][y] / c;
         }
       }
       m[y][y] /= c;
-      for (var x = h; x < w; x++) {
+      for (x = h; x < w; x++) {
         m[y][x] /= c;
       }
     }
@@ -9561,7 +8439,7 @@ jStat.extend({
         parts = jStat.arange(l).map(function(jj) {
           return L[l][jj] * R[jj][j];
         });
-        R[l][j] = A[i][j] - jStat.sum(parts);
+        R[l][j] = A[parts.length][j] - jStat.sum(parts);
       });
     });
     return [L, R];
@@ -9742,35 +8620,6 @@ jStat.extend({
     var sum   = jStat.sum;
     var range = jStat.arange;
 
-    function get_Q1(x) {
-      var size = x.length;
-      var norm_x = jStat.norm(x, 2);
-      var e1 = jStat.zeros(1, size)[0];
-      e1[0] = 1;
-      var u = jStat.add(jStat.multiply(jStat.multiply(e1, norm_x), -1), x);
-      var norm_u = jStat.norm(u, 2);
-      var v = jStat.divide(u, norm_u);
-      var Q = jStat.subtract(jStat.identity(size),
-                             jStat.multiply(jStat.outer(v, v), 2));
-      return Q;
-    }
-
-    function qr(A) {
-      var size = A[0].length;
-      var QList = [];
-      jStat.arange(size).forEach(function(i) {
-        var x = jStat.slice(A, { row: { start: i }, col: i });
-        var Q = get_Q1(x);
-        var Qn = jStat.identity(A.length);
-        Qn = jStat.sliceAssign(Qn, { row: { start: i }, col: { start: i }}, Q);
-        A = jStat.multiply(Qn, A);
-        QList.push(Qn);
-      });
-      var Q = QList.reduce(function(x, y){ return jStat.multiply(x,y) });
-      var R = A;
-      return [Q, R];
-    }
-
     function qr2(x) {
       // quick impletation
       // https://www.stat.wisc.edu/~larget/math496/qr.html
@@ -9778,8 +8627,8 @@ jStat.extend({
       var n = x.length;
       var p = x[0].length;
 
+      var r = jStat.zeros(p, p);
       x = jStat.copy(x);
-      r = jStat.zeros(p, p);
 
       var i,j,k;
       for(j = 0; j < p; j++){
@@ -9804,7 +8653,7 @@ jStat.extend({
     return qr2;
   }()),
 
-  lstsq: (function(A, b) {
+  lstsq: (function() {
     // solve least squard problem for Ax=b as QR decomposition way if b is
     // [[b1],[b2],[b3]] form will return [[x1],[x2],[x3]] array form solution
     // else b is [b1,b2,b3] form will return [x1,x2,x3] array form solution
@@ -9844,17 +8693,17 @@ jStat.extend({
       var Q1 = jStat.slice(Q,{col:{end:attrs}});
       var R1 = jStat.slice(R,{row:{end:attrs}});
       var RI = R_I(R1);
-	  var Q2 = jStat.transpose(Q1);
+      var Q2 = jStat.transpose(Q1);
 
-	  if(Q2[0].length === undefined){
-		  Q2 = [Q2]; // The confusing jStat.multifly implementation threat nature process again.
-	  }
+      if(Q2[0].length === undefined){
+        Q2 = [Q2]; // The confusing jStat.multifly implementation threat nature process again.
+      }
 
       var x = jStat.multiply(jStat.multiply(RI, Q2), b);
 
-	  if(x.length === undefined){
-		  x = [[x]]; // The confusing jStat.multifly implementation threat nature process again.
-	  }
+      if(x.length === undefined){
+        x = [[x]]; // The confusing jStat.multifly implementation threat nature process again.
+      }
 
 
       if (array_mode)
@@ -9867,18 +8716,16 @@ jStat.extend({
 
   jacobi: function jacobi(a) {
     var condition = 1;
-    var count = 0;
     var n = a.length;
     var e = jStat.identity(n, n);
     var ev = [];
     var b, i, j, p, q, maxim, theta, s;
     // condition === 1 only if tolerance is not reached
     while (condition === 1) {
-      count++;
       maxim = a[0][1];
       p = 0;
       q = 1;
-      for (var i = 0; i < n; i++) {
+      for (i = 0; i < n; i++) {
         for (j = 0; j < n; j++) {
           if (i != j) {
             if (maxim < Math.abs(a[i][j])) {
@@ -9903,7 +8750,7 @@ jStat.extend({
       b = jStat.multiply(jStat.multiply(jStat.inv(s), a), s);
       a = b;
       condition = 0;
-      for (var i = 1; i < n; i++) {
+      for (i = 1; i < n; i++) {
         for (j = 1; j < n; j++) {
           if (i != j && Math.abs(a[i][j]) > 0.001) {
             condition = 1;
@@ -9911,7 +8758,7 @@ jStat.extend({
         }
       }
     }
-    for (var i = 0; i < n; i++) ev.push(a[i][i]);
+    for (i = 0; i < n; i++) ev.push(a[i][i]);
     //returns both the eigenvalue and eigenmatrix
     return [e, ev];
   },
@@ -9947,7 +8794,7 @@ jStat.extend({
     var x = [];
     var h1 = [];
     var g = [];
-    var m, a1, j, k, I, d;
+    var m, a1, j, k, I;
     while (i < order / 2) {
       I = f(a);
       for (j = a, k = 0; j <= b; j = j + h, k++) x[k] = j;
@@ -9982,12 +8829,11 @@ jStat.extend({
         if (X[i] === x) p = i;
       return p;
     }
-    var n = X.length,
-    h_min = Math.abs(x - X[pos(X, x) + 1]),
-    i = 0,
-    g = [],
-    h1 = [],
-    y1, y2, m, a, j;
+    var h_min = Math.abs(x - X[pos(X, x) + 1]);
+    var i = 0;
+    var g = [];
+    var h1 = [];
+    var y1, y2, m, a, j;
     while (h >= h_min) {
       y1 = pos(X, x + h);
       y2 = pos(X, x);
@@ -9999,7 +8845,7 @@ jStat.extend({
     m = 1;
     while (a != 1) {
       for (j = 0; j < a - 1; j++)
-      h1[j] = ((Math.pow(4, m)) * g[j + 1] - g[j]) / (Math.pow(4, m) - 1);
+        h1[j] = ((Math.pow(4, m)) * g[j + 1] - g[j]) / (Math.pow(4, m) - 1);
       a = h1.length;
       g = h1;
       h1 = [];
@@ -10080,11 +8926,11 @@ jStat.extend({
     for (; i < n - 1; i++)
       h[i] = X[i + 1] - X[i];
     alpha[0] = 0;
-    for (var i = 1; i < n - 1; i++) {
+    for (i = 1; i < n - 1; i++) {
       alpha[i] = (3 / h[i]) * (F[i + 1] - F[i]) -
           (3 / h[i-1]) * (F[i] - F[i-1]);
     }
-    for (var i = 1; i < n - 1; i++) {
+    for (i = 1; i < n - 1; i++) {
       A[i] = [];
       B[i] = [];
       A[i][i-1] = h[i-1];
@@ -10112,7 +8958,6 @@ jStat.extend({
   PCA: function PCA(X) {
     var m = X.length;
     var n = X[0].length;
-    var flag = false;
     var i = 0;
     var j, temp1;
     var u = [];
@@ -10125,17 +8970,17 @@ jStat.extend({
     var C = [];
     var V = [];
     var Vt = [];
-    for (var i = 0; i < m; i++) {
+    for (i = 0; i < m; i++) {
       u[i] = jStat.sum(X[i]) / n;
     }
-    for (var i = 0; i < n; i++) {
+    for (i = 0; i < n; i++) {
       B[i] = [];
       for(j = 0; j < m; j++) {
         B[i][j] = X[j][i] - u[j];
       }
     }
     B = jStat.transpose(B);
-    for (var i = 0; i < m; i++) {
+    for (i = 0; i < m; i++) {
       C[i] = [];
       for (j = 0; j < m; j++) {
         C[i][j] = (jStat.dot([B[i]], [B[j]])) / (n - 1);
@@ -10145,7 +8990,7 @@ jStat.extend({
     V = result[0];
     D = result[1];
     Vt = jStat.transpose(V);
-    for (var i = 0; i < D.length; i++) {
+    for (i = 0; i < D.length; i++) {
       for (j = i; j < D.length; j++) {
         if(D[i] < D[j])  {
           temp1 = D[i];
@@ -10158,7 +9003,7 @@ jStat.extend({
       }
     }
     Bt = jStat.transpose(B);
-    for (var i = 0; i < m; i++) {
+    for (i = 0; i < m; i++) {
       Y[i] = [];
       for (j = 0; j < Bt.length; j++) {
         Y[i][j] = jStat.dot([Vt[i]], [Bt[j]]);
@@ -10315,30 +9160,26 @@ jStat.extend({
     expVar, sample, sampMean, sampSampMean, tmpargs, unexpVar, i, j;
     if (args.length === 1) {
       tmpargs = new Array(args[0].length);
-      for (var i = 0; i < args[0].length; i++) {
+      for (i = 0; i < args[0].length; i++) {
         tmpargs[i] = args[0][i];
       }
       args = tmpargs;
     }
-    // 2 sample case
-    if (args.length === 2) {
-      return jStat.variance(args[0]) / jStat.variance(args[1]);
-    }
     // Builds sample array
     sample = new Array();
-    for (var i = 0; i < args.length; i++) {
+    for (i = 0; i < args.length; i++) {
       sample = sample.concat(args[i]);
     }
     sampMean = jStat.mean(sample);
     // Computes the explained variance
     expVar = 0;
-    for (var i = 0; i < args.length; i++) {
+    for (i = 0; i < args.length; i++) {
       expVar = expVar + args[i].length * Math.pow(jStat.mean(args[i]) - sampMean, 2);
     }
     expVar /= (args.length - 1);
     // Computes unexplained variance
     unexpVar = 0;
-    for (var i = 0; i < args.length; i++) {
+    for (i = 0; i < args.length; i++) {
       sampSampMean = jStat.mean(args[i]);
       for (j = 0; j < args[i].length; j++) {
         unexpVar += Math.pow(args[i][j] - sampSampMean, 2);
@@ -10357,10 +9198,10 @@ jStat.extend({
     if (isNumber(args[0])) {
       return 1 - jStat.centralF.cdf(args[0], args[1], args[2]);
     }
-    anovafscore = jStat.anovafscore(args);
+    var anovafscore = jStat.anovafscore(args);
     df1 = args.length - 1;
     n = 0;
-    for (var i = 0; i < args.length; i++) {
+    for (i = 0; i < args.length; i++) {
       n = n + args[i].length;
     }
     df2 = n - df1 - 1;
@@ -10380,7 +9221,7 @@ jStat.extend(jStat.fn, {
   anovaftes: function anovaftes() {
     var n = 0;
     var i;
-    for (var i = 0; i < this.length; i++) {
+    for (i = 0; i < this.length; i++) {
       n = n + this[i].length;
     }
     return jStat.ftest(this.anovafscore(), this.length - 1, n - this.length);
@@ -10533,11 +9374,6 @@ jStat.extend(jStat.fn, {
 
 }(jStat, Math));
 jStat.models = (function(){
-
-  function sub_regress(endog, exog) {
-    return ols(endog, exog);
-  }
-
   function sub_regress(exog) {
     var var_count = exog[0].length;
     var modelList = jStat.arange(var_count).map(function(endog_index) {
@@ -10650,6 +9486,212 @@ jStat.models = (function(){
 
   return { ols: ols_wrap };
 })();
+//To regress, simply build X matrix
+//(append column of 1's) using
+//buildxmatrix and build the Y
+//matrix using buildymatrix
+//(simply the transpose)
+//and run regress.
+
+
+
+//Regressions
+
+jStat.extend({
+  buildxmatrix: function buildxmatrix(){
+    //Parameters will be passed in as such
+    //(array1,array2,array3,...)
+    //as (x1,x2,x3,...)
+    //needs to be (1,x1,x2,x3,...)
+    var matrixRows = new Array(arguments.length);
+    for(var i=0;i<arguments.length;i++){
+      var array = [1];
+      matrixRows[i]= array.concat(arguments[i]);
+    }
+    return jStat(matrixRows);
+
+  },
+
+  builddxmatrix: function builddxmatrix() {
+    //Paramters will be passed in as such
+    //([array1,array2,...]
+    var matrixRows = new Array(arguments[0].length);
+    for(var i=0;i<arguments[0].length;i++){
+      var array = [1]
+      matrixRows[i]= array.concat(arguments[0][i]);
+    }
+    return jStat(matrixRows);
+
+  },
+
+  buildjxmatrix: function buildjxmatrix(jMat) {
+    //Builds from jStat Matrix
+    var pass = new Array(jMat.length)
+    for(var i=0;i<jMat.length;i++){
+      pass[i] = jMat[i];
+    }
+    return jStat.builddxmatrix(pass);
+
+  },
+
+  buildymatrix: function buildymatrix(array){
+    return jStat(array).transpose();
+  },
+
+  buildjymatrix: function buildjymatrix(jMat){
+    return jMat.transpose();
+  },
+
+  matrixmult: function matrixmult(A,B){
+    var i, j, k, result, sum;
+    if (A.cols() == B.rows()) {
+      if(B.rows()>1){
+        result = [];
+        for (i = 0; i < A.rows(); i++) {
+          result[i] = [];
+          for (j = 0; j < B.cols(); j++) {
+            sum = 0;
+            for (k = 0; k < A.cols(); k++) {
+              sum += A.toArray()[i][k] * B.toArray()[k][j];
+            }
+            result[i][j] = sum;
+          }
+        }
+        return jStat(result);
+      }
+      result = [];
+      for (i = 0; i < A.rows(); i++) {
+        result[i] = [];
+        for (j = 0; j < B.cols(); j++) {
+          sum = 0;
+          for (k = 0; k < A.cols(); k++) {
+            sum += A.toArray()[i][k] * B.toArray()[j];
+          }
+          result[i][j] = sum;
+        }
+      }
+      return jStat(result);
+    }
+  },
+
+  //regress and regresst to be fixed
+
+  regress: function regress(jMatX,jMatY){
+    //print("regressin!");
+    //print(jMatX.toArray());
+    var innerinv = jStat.xtranspxinv(jMatX);
+    //print(innerinv);
+    var xtransp = jMatX.transpose();
+    var next = jStat.matrixmult(jStat(innerinv),xtransp);
+    return jStat.matrixmult(next,jMatY);
+
+  },
+
+  regresst: function regresst(jMatX,jMatY,sides){
+    var beta = jStat.regress(jMatX,jMatY);
+
+    var compile = {};
+    compile.anova = {};
+    var jMatYBar = jStat.jMatYBar(jMatX, beta);
+    compile.yBar = jMatYBar;
+    var yAverage = jMatY.mean();
+    compile.anova.residuals = jStat.residuals(jMatY, jMatYBar);
+
+    compile.anova.ssr = jStat.ssr(jMatYBar, yAverage);
+    compile.anova.msr = compile.anova.ssr / (jMatX[0].length - 1);
+
+    compile.anova.sse = jStat.sse(jMatY, jMatYBar);
+    compile.anova.mse =
+        compile.anova.sse / (jMatY.length - (jMatX[0].length - 1) - 1);
+
+    compile.anova.sst = jStat.sst(jMatY, yAverage);
+    compile.anova.mst = compile.anova.sst / (jMatY.length - 1);
+
+    compile.anova.r2 = 1 - (compile.anova.sse / compile.anova.sst);
+    if (compile.anova.r2 < 0) compile.anova.r2 = 0;
+
+    compile.anova.fratio = compile.anova.msr / compile.anova.mse;
+    compile.anova.pvalue =
+        jStat.anovaftest(compile.anova.fratio,
+                         jMatX[0].length - 1,
+                         jMatY.length - (jMatX[0].length - 1) - 1);
+
+    compile.anova.rmse = Math.sqrt(compile.anova.mse);
+
+    compile.anova.r2adj = 1 - (compile.anova.mse / compile.anova.mst);
+    if (compile.anova.r2adj < 0) compile.anova.r2adj = 0;
+
+    compile.stats = new Array(jMatX[0].length);
+    var covar = jStat.xtranspxinv(jMatX);
+    var sds, ts, ps;
+
+    for(var i=0; i<beta.length;i++){
+      sds=Math.sqrt(compile.anova.mse * Math.abs(covar[i][i]));
+      ts= Math.abs(beta[i] / sds);
+      ps= jStat.ttest(ts, jMatY.length - jMatX[0].length - 1, sides);
+
+      compile.stats[i]=[beta[i], sds, ts, ps];
+    }
+
+    compile.regress = beta;
+    return compile;
+  },
+
+  xtranspx: function xtranspx(jMatX){
+    return jStat.matrixmult(jMatX.transpose(),jMatX);
+  },
+
+
+  xtranspxinv: function xtranspxinv(jMatX){
+    var inner = jStat.matrixmult(jMatX.transpose(),jMatX);
+    var innerinv = jStat.inv(inner);
+    return innerinv;
+  },
+
+  jMatYBar: function jMatYBar(jMatX, beta) {
+    var yBar = jStat.matrixmult(jMatX, beta);
+    return new jStat(yBar);
+  },
+
+  residuals: function residuals(jMatY, jMatYBar) {
+    return jStat.matrixsubtract(jMatY, jMatYBar);
+  },
+
+  ssr: function ssr(jMatYBar, yAverage) {
+    var ssr = 0;
+    for(var i = 0; i < jMatYBar.length; i++) {
+      ssr += Math.pow(jMatYBar[i] - yAverage, 2);
+    }
+    return ssr;
+  },
+
+  sse: function sse(jMatY, jMatYBar) {
+    var sse = 0;
+    for(var i = 0; i < jMatY.length; i++) {
+      sse += Math.pow(jMatY[i] - jMatYBar[i], 2);
+    }
+    return sse;
+  },
+
+  sst: function sst(jMatY, yAverage) {
+    var sst = 0;
+    for(var i = 0; i < jMatY.length; i++) {
+      sst += Math.pow(jMatY[i] - yAverage, 2);
+    }
+    return sst;
+  },
+
+  matrixsubtract: function matrixsubtract(A,B){
+    var ans = new Array(A.length);
+    for(var i=0;i<A.length;i++){
+      ans[i] = new Array(A[i].length);
+      for(var j=0;j<A[i].length;j++){
+        ans[i][j]=A[i][j]-B[i][j];
+      }
+    }
+    return jStat(ans);
+  }
+});
   // Make it compatible with previous version.
   jStat.jStat = jStat;
 
@@ -10658,11 +9700,10 @@ jStat.models = (function(){
 
 
 /***/ }),
-/* 12 */
+/* 11 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var utils = __webpack_require__(1);
-var numbro = __webpack_require__(9);
 var error = __webpack_require__(0);
 
 exports.UNIQUE = function () {
@@ -10723,20 +9764,16 @@ exports.NUMBERS = function () {
   });
 };
 
-exports.NUMERAL = function (number, format) {
-  return numbro(number).format(format);
-};
-
 
 /***/ }),
-/* 13 */
+/* 12 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var error = __webpack_require__(0);
-var jStat = __webpack_require__(11).jStat;
+var jStat = __webpack_require__(10);
 var text = __webpack_require__(6);
 var utils = __webpack_require__(1);
-var bessel = __webpack_require__(28);
+var bessel = __webpack_require__(26);
 
 function isValidBinaryNumber(number) {
   return (/^[01]{1,10}$/).test(number);
@@ -12297,19 +11334,19 @@ exports.OCT2HEX = function(number, places) {
 
 
 /***/ }),
-/* 14 */
+/* 13 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
 
 
 exports.__esModule = true;
-var SUPPORTED_FORMULAS = ['ABS', 'ACCRINT', 'ACOS', 'ACOSH', 'ACOT', 'ACOTH', 'ADD', 'AGGREGATE', 'AND', 'ARABIC', 'ARGS2ARRAY', 'ASIN', 'ASINH', 'ATAN', 'ATAN2', 'ATANH', 'AVEDEV', 'AVERAGE', 'AVERAGEA', 'AVERAGEIF', 'AVERAGEIFS', 'BASE', 'BESSELI', 'BESSELJ', 'BESSELK', 'BESSELY', 'BETA.DIST', 'BETA.INV', 'BETADIST', 'BETAINV', 'BIN2DEC', 'BIN2HEX', 'BIN2OCT', 'BINOM.DIST', 'BINOM.DIST.RANGE', 'BINOM.INV', 'BINOMDIST', 'BITAND', 'BITLSHIFT', 'BITOR', 'BITRSHIFT', 'BITXOR', 'CEILING', 'CEILINGMATH', 'CEILINGPRECISE', 'CHAR', 'CHISQ.DIST', 'CHISQ.DIST.RT', 'CHISQ.INV', 'CHISQ.INV.RT', 'CHOOSE', 'CHOOSE', 'CLEAN', 'CODE', 'COLUMN', 'COLUMNS', 'COMBIN', 'COMBINA', 'COMPLEX', 'CONCATENATE', 'CONFIDENCE', 'CONFIDENCE.NORM', 'CONFIDENCE.T', 'CONVERT', 'CORREL', 'COS', 'COSH', 'COT', 'COTH', 'COUNT', 'COUNTA', 'COUNTBLANK', 'COUNTIF', 'COUNTIFS', 'COUNTIN', 'COUNTUNIQUE', 'COVARIANCE.P', 'COVARIANCE.S', 'CSC', 'CSCH', 'CUMIPMT', 'CUMPRINC', 'DATE', 'DATEVALUE', 'DAY', 'DAYS', 'DAYS360', 'DB', 'DDB', 'DEC2BIN', 'DEC2HEX', 'DEC2OCT', 'DECIMAL', 'DEGREES', 'DELTA', 'DEVSQ', 'DIVIDE', 'DOLLAR', 'DOLLARDE', 'DOLLARFR', 'E', 'EDATE', 'EFFECT', 'EOMONTH', 'EQ', 'ERF', 'ERFC', 'EVEN', 'EXACT', 'EXP', 'EXPON.DIST', 'EXPONDIST', 'F.DIST', 'F.DIST.RT', 'F.INV', 'F.INV.RT', 'FACT', 'FACTDOUBLE', 'FALSE', 'FDIST', 'FDISTRT', 'FIND', 'FINV', 'FINVRT', 'FISHER', 'FISHERINV', 'FIXED', 'FLATTEN', 'FLOOR', 'FORECAST', 'FREQUENCY', 'FV', 'FVSCHEDULE', 'GAMMA', 'GAMMA.DIST', 'GAMMA.INV', 'GAMMADIST', 'GAMMAINV', 'GAMMALN', 'GAMMALN.PRECISE', 'GAUSS', 'GCD', 'GEOMEAN', 'GESTEP', 'GROWTH', 'GTE', 'HARMEAN', 'HEX2BIN', 'HEX2DEC', 'HEX2OCT', 'HOUR', 'HTML2TEXT', 'HYPGEOM.DIST', 'HYPGEOMDIST', 'IF', 'IMABS', 'IMAGINARY', 'IMARGUMENT', 'IMCONJUGATE', 'IMCOS', 'IMCOSH', 'IMCOT', 'IMCSC', 'IMCSCH', 'IMDIV', 'IMEXP', 'IMLN', 'IMLOG10', 'IMLOG2', 'IMPOWER', 'IMPRODUCT', 'IMREAL', 'IMSEC', 'IMSECH', 'IMSIN', 'IMSINH', 'IMSQRT', 'IMSUB', 'IMSUM', 'IMTAN', 'INT', 'INTERCEPT', 'INTERVAL', 'IPMT', 'IRR', 'ISBINARY', 'ISBLANK', 'ISEVEN', 'ISLOGICAL', 'ISNONTEXT', 'ISNUMBER', 'ISODD', 'ISODD', 'ISOWEEKNUM', 'ISPMT', 'ISTEXT', 'JOIN', 'KURT', 'LARGE', 'LCM', 'LEFT', 'LEN', 'LINEST', 'LN', 'LOG', 'LOG10', 'LOGEST', 'LOGNORM.DIST', 'LOGNORM.INV', 'LOGNORMDIST', 'LOGNORMINV', 'LOWER', 'LT', 'LTE', 'MATCH', 'MAX', 'MAXA', 'MEDIAN', 'MID', 'MIN', 'MINA', 'MINUS', 'MINUTE', 'MIRR', 'MOD', 'MODE.MULT', 'MODE.SNGL', 'MODEMULT', 'MODESNGL', 'MONTH', 'MROUND', 'MULTINOMIAL', 'MULTIPLY', 'NE', 'NEGBINOM.DIST', 'NEGBINOMDIST', 'NETWORKDAYS', 'NOMINAL', 'NORM.DIST', 'NORM.INV', 'NORM.S.DIST', 'NORM.S.INV', 'NORMDIST', 'NORMINV', 'NORMSDIST', 'NORMSINV', 'NOT', 'NOW', 'NPER', 'NPV', 'NUMBERS', 'NUMERAL', 'OCT2BIN', 'OCT2DEC', 'OCT2HEX', 'ODD', 'OR', 'PDURATION', 'PEARSON', 'PERCENTILEEXC', 'PERCENTILEINC', 'PERCENTRANKEXC', 'PERCENTRANKINC', 'PERMUT', 'PERMUTATIONA', 'PHI', 'PI', 'PMT', 'POISSON.DIST', 'POISSONDIST', 'POW', 'POWER', 'PPMT', 'PROB', 'PRODUCT', 'PROPER', 'PV', 'QUARTILE.EXC', 'QUARTILE.INC', 'QUARTILEEXC', 'QUARTILEINC', 'QUOTIENT', 'RADIANS', 'RAND', 'RANDBETWEEN', 'RANK.AVG', 'RANK.EQ', 'RANKAVG', 'RANKEQ', 'RATE', 'REFERENCE', 'REGEXEXTRACT', 'REGEXMATCH', 'REGEXREPLACE', 'REPLACE', 'REPT', 'RIGHT', 'ROMAN', 'ROUND', 'ROUNDDOWN', 'ROUNDUP', 'ROW', 'ROWS', 'RRI', 'RSQ', 'SEARCH', 'SEC', 'SECH', 'SECOND', 'SERIESSUM', 'SIGN', 'SIN', 'SINH', 'SKEW', 'SKEW.P', 'SKEWP', 'SLN', 'SLOPE', 'SMALL', 'SPLIT', 'SPLIT', 'SQRT', 'SQRTPI', 'STANDARDIZE', 'STDEV.P', 'STDEV.S', 'STDEVA', 'STDEVP', 'STDEVPA', 'STDEVS', 'STEYX', 'SUBSTITUTE', 'SUBTOTAL', 'SUM', 'SUMIF', 'SUMIFS', 'SUMPRODUCT', 'SUMSQ', 'SUMX2MY2', 'SUMX2PY2', 'SUMXMY2', 'SWITCH', 'SYD', 'T', 'T.DIST', 'T.DIST.2T', 'T.DIST.RT', 'T.INV', 'T.INV.2T', 'TAN', 'TANH', 'TBILLEQ', 'TBILLPRICE', 'TBILLYIELD', 'TDIST', 'TDIST2T', 'TDISTRT', 'TEXT', 'TIME', 'TIMEVALUE', 'TINV', 'TINV2T', 'TODAY', 'TRANSPOSE', 'TREND', 'TRIM', 'TRIMMEAN', 'TRUE', 'TRUNC', 'UNICHAR', 'UNICODE', 'UNIQUE', 'UPPER', 'VALUE', 'VAR.P', 'VAR.S', 'VARA', 'VARP', 'VARPA', 'VARS', 'WEEKDAY', 'WEEKNUM', 'WEIBULL.DIST', 'WEIBULLDIST', 'WORKDAY', 'XIRR', 'XNPV', 'XOR', 'YEAR', 'YEARFRAC'];
+var SUPPORTED_FORMULAS = ['ABS', 'ACCRINT', 'ACOS', 'ACOSH', 'ACOT', 'ACOTH', 'ADD', 'AGGREGATE', 'AND', 'ARABIC', 'ARGS2ARRAY', 'ASIN', 'ASINH', 'ATAN', 'ATAN2', 'ATANH', 'AVEDEV', 'AVERAGE', 'AVERAGEA', 'AVERAGEIF', 'AVERAGEIFS', 'BASE', 'BESSELI', 'BESSELJ', 'BESSELK', 'BESSELY', 'BETA.DIST', 'BETA.INV', 'BETADIST', 'BETAINV', 'BIN2DEC', 'BIN2HEX', 'BIN2OCT', 'BINOM.DIST', 'BINOM.DIST.RANGE', 'BINOM.INV', 'BINOMDIST', 'BITAND', 'BITLSHIFT', 'BITOR', 'BITRSHIFT', 'BITXOR', 'CEILING', 'CEILINGMATH', 'CEILINGPRECISE', 'CHAR', 'CHISQ.DIST', 'CHISQ.DIST.RT', 'CHISQ.INV', 'CHISQ.INV.RT', 'CHOOSE', 'CHOOSE', 'CLEAN', 'CODE', 'COLUMN', 'COLUMNS', 'COMBIN', 'COMBINA', 'COMPLEX', 'CONCATENATE', 'CONFIDENCE', 'CONFIDENCE.NORM', 'CONFIDENCE.T', 'CONVERT', 'CORREL', 'COS', 'COSH', 'COT', 'COTH', 'COUNT', 'COUNTA', 'COUNTBLANK', 'COUNTIF', 'COUNTIFS', 'COUNTIN', 'COUNTUNIQUE', 'COVARIANCE.P', 'COVARIANCE.S', 'CSC', 'CSCH', 'CUMIPMT', 'CUMPRINC', 'DATE', 'DATEVALUE', 'DAY', 'DAYS', 'DAYS360', 'DB', 'DDB', 'DEC2BIN', 'DEC2HEX', 'DEC2OCT', 'DECIMAL', 'DEGREES', 'DELTA', 'DEVSQ', 'DIVIDE', 'DOLLARDE', 'DOLLARFR', 'E', 'EDATE', 'EFFECT', 'EOMONTH', 'EQ', 'ERF', 'ERFC', 'EVEN', 'EXACT', 'EXP', 'EXPON.DIST', 'EXPONDIST', 'F.DIST', 'F.DIST.RT', 'F.INV', 'F.INV.RT', 'FACT', 'FACTDOUBLE', 'FALSE', 'FDIST', 'FDISTRT', 'FIND', 'FINV', 'FINVRT', 'FISHER', 'FISHERINV', 'FLATTEN', 'FLOOR', 'FORECAST', 'FREQUENCY', 'FV', 'FVSCHEDULE', 'GAMMA', 'GAMMA.DIST', 'GAMMA.INV', 'GAMMADIST', 'GAMMAINV', 'GAMMALN', 'GAMMALN.PRECISE', 'GAUSS', 'GCD', 'GEOMEAN', 'GESTEP', 'GROWTH', 'GTE', 'HARMEAN', 'HEX2BIN', 'HEX2DEC', 'HEX2OCT', 'HOUR', 'HTML2TEXT', 'HYPGEOM.DIST', 'HYPGEOMDIST', 'IF', 'IMABS', 'IMAGINARY', 'IMARGUMENT', 'IMCONJUGATE', 'IMCOS', 'IMCOSH', 'IMCOT', 'IMCSC', 'IMCSCH', 'IMDIV', 'IMEXP', 'IMLN', 'IMLOG10', 'IMLOG2', 'IMPOWER', 'IMPRODUCT', 'IMREAL', 'IMSEC', 'IMSECH', 'IMSIN', 'IMSINH', 'IMSQRT', 'IMSUB', 'IMSUM', 'IMTAN', 'INT', 'INTERCEPT', 'INTERVAL', 'IPMT', 'IRR', 'ISBINARY', 'ISBLANK', 'ISEVEN', 'ISLOGICAL', 'ISNONTEXT', 'ISNUMBER', 'ISODD', 'ISODD', 'ISOWEEKNUM', 'ISPMT', 'ISTEXT', 'JOIN', 'KURT', 'LARGE', 'LCM', 'LEFT', 'LEN', 'LINEST', 'LN', 'LOG', 'LOG10', 'LOGEST', 'LOGNORM.DIST', 'LOGNORM.INV', 'LOGNORMDIST', 'LOGNORMINV', 'LOWER', 'LT', 'LTE', 'MATCH', 'MAX', 'MAXA', 'MEDIAN', 'MID', 'MIN', 'MINA', 'MINUS', 'MINUTE', 'MIRR', 'MOD', 'MODE.MULT', 'MODE.SNGL', 'MODEMULT', 'MODESNGL', 'MONTH', 'MROUND', 'MULTINOMIAL', 'MULTIPLY', 'NE', 'NEGBINOM.DIST', 'NEGBINOMDIST', 'NETWORKDAYS', 'NOMINAL', 'NORM.DIST', 'NORM.INV', 'NORM.S.DIST', 'NORM.S.INV', 'NORMDIST', 'NORMINV', 'NORMSDIST', 'NORMSINV', 'NOT', 'NOW', 'NPER', 'NPV', 'NUMBERS', 'OCT2BIN', 'OCT2DEC', 'OCT2HEX', 'ODD', 'OR', 'PDURATION', 'PEARSON', 'PERCENTILEEXC', 'PERCENTILEINC', 'PERCENTRANKEXC', 'PERCENTRANKINC', 'PERMUT', 'PERMUTATIONA', 'PHI', 'PI', 'PMT', 'POISSON.DIST', 'POISSONDIST', 'POW', 'POWER', 'PPMT', 'PROB', 'PRODUCT', 'PROPER', 'PV', 'QUARTILE.EXC', 'QUARTILE.INC', 'QUARTILEEXC', 'QUARTILEINC', 'QUOTIENT', 'RADIANS', 'RAND', 'RANDBETWEEN', 'RANK.AVG', 'RANK.EQ', 'RANKAVG', 'RANKEQ', 'RATE', 'REFERENCE', 'REGEXEXTRACT', 'REGEXMATCH', 'REGEXREPLACE', 'REPLACE', 'REPT', 'RIGHT', 'ROMAN', 'ROUND', 'ROUNDDOWN', 'ROUNDUP', 'ROW', 'ROWS', 'RRI', 'RSQ', 'SEARCH', 'SEC', 'SECH', 'SECOND', 'SERIESSUM', 'SIGN', 'SIN', 'SINH', 'SKEW', 'SKEW.P', 'SKEWP', 'SLN', 'SLOPE', 'SMALL', 'SPLIT', 'SPLIT', 'SQRT', 'SQRTPI', 'STANDARDIZE', 'STDEV.P', 'STDEV.S', 'STDEVA', 'STDEVP', 'STDEVPA', 'STDEVS', 'STEYX', 'SUBSTITUTE', 'SUBTOTAL', 'SUM', 'SUMIF', 'SUMIFS', 'SUMPRODUCT', 'SUMSQ', 'SUMX2MY2', 'SUMX2PY2', 'SUMXMY2', 'SWITCH', 'SYD', 'T', 'T.DIST', 'T.DIST.2T', 'T.DIST.RT', 'T.INV', 'T.INV.2T', 'TAN', 'TANH', 'TBILLEQ', 'TBILLPRICE', 'TBILLYIELD', 'TDIST', 'TDIST2T', 'TDISTRT', 'TIME', 'TIMEVALUE', 'TINV', 'TINV2T', 'TODAY', 'TRANSPOSE', 'TREND', 'TRIM', 'TRIMMEAN', 'TRUE', 'TRUNC', 'UNICHAR', 'UNICODE', 'UNIQUE', 'UPPER', 'VAR.P', 'VAR.S', 'VARA', 'VARP', 'VARPA', 'VARS', 'WEEKDAY', 'WEEKNUM', 'WEIBULL.DIST', 'WEIBULLDIST', 'WORKDAY', 'XIRR', 'XNPV', 'XOR', 'YEAR', 'YEARFRAC'];
 
 exports['default'] = SUPPORTED_FORMULAS;
 
 /***/ }),
-/* 15 */
+/* 14 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12442,7 +11479,7 @@ function toLabel(row, column) {
 }
 
 /***/ }),
-/* 16 */
+/* 15 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12451,11 +11488,11 @@ function toLabel(row, column) {
 exports.__esModule = true;
 exports.rowLabelToIndex = exports.rowIndexToLabel = exports.columnLabelToIndex = exports.columnIndexToLabel = exports.toLabel = exports.extractLabel = exports.error = exports.Parser = exports.ERROR_VALUE = exports.ERROR_REF = exports.ERROR_NUM = exports.ERROR_NULL = exports.ERROR_NOT_AVAILABLE = exports.ERROR_NAME = exports.ERROR_DIV_ZERO = exports.ERROR = exports.SUPPORTED_FORMULAS = undefined;
 
-var _parser = __webpack_require__(17);
+var _parser = __webpack_require__(16);
 
 var _parser2 = _interopRequireDefault(_parser);
 
-var _supportedFormulas = __webpack_require__(14);
+var _supportedFormulas = __webpack_require__(13);
 
 var _supportedFormulas2 = _interopRequireDefault(_supportedFormulas);
 
@@ -12463,7 +11500,7 @@ var _error = __webpack_require__(2);
 
 var _error2 = _interopRequireDefault(_error);
 
-var _cell = __webpack_require__(15);
+var _cell = __webpack_require__(14);
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { 'default': obj }; }
 
@@ -12486,7 +11523,7 @@ exports.rowIndexToLabel = _cell.rowIndexToLabel;
 exports.rowLabelToIndex = _cell.rowLabelToIndex;
 
 /***/ }),
-/* 17 */
+/* 16 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12494,17 +11531,17 @@ exports.rowLabelToIndex = _cell.rowLabelToIndex;
 
 exports.__esModule = true;
 
-var _tinyEmitter = __webpack_require__(18);
+var _tinyEmitter = __webpack_require__(17);
 
 var _tinyEmitter2 = _interopRequireDefault(_tinyEmitter);
 
-var _evaluateByOperator = __webpack_require__(19);
+var _evaluateByOperator = __webpack_require__(18);
 
 var _evaluateByOperator2 = _interopRequireDefault(_evaluateByOperator);
 
-var _grammarParser = __webpack_require__(41);
+var _grammarParser = __webpack_require__(39);
 
-var _string = __webpack_require__(43);
+var _string = __webpack_require__(40);
 
 var _number = __webpack_require__(3);
 
@@ -12512,7 +11549,7 @@ var _error = __webpack_require__(2);
 
 var _error2 = _interopRequireDefault(_error);
 
-var _cell = __webpack_require__(15);
+var _cell = __webpack_require__(14);
 
 function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { 'default': obj }; }
 
@@ -12812,7 +11849,7 @@ var Parser = function (_Emitter) {
 exports['default'] = Parser;
 
 /***/ }),
-/* 18 */
+/* 17 */
 /***/ (function(module, exports) {
 
 function E () {
@@ -12881,10 +11918,11 @@ E.prototype = {
 };
 
 module.exports = E;
+module.exports.TinyEmitter = E;
 
 
 /***/ }),
-/* 19 */
+/* 18 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -12894,55 +11932,55 @@ exports.__esModule = true;
 exports['default'] = evaluateByOperator;
 exports.registerOperation = registerOperation;
 
-var _add = __webpack_require__(20);
+var _add = __webpack_require__(19);
 
 var _add2 = _interopRequireDefault(_add);
 
-var _ampersand = __webpack_require__(21);
+var _ampersand = __webpack_require__(20);
 
 var _ampersand2 = _interopRequireDefault(_ampersand);
 
-var _divide = __webpack_require__(22);
+var _divide = __webpack_require__(21);
 
 var _divide2 = _interopRequireDefault(_divide);
 
-var _equal = __webpack_require__(23);
+var _equal = __webpack_require__(22);
 
 var _equal2 = _interopRequireDefault(_equal);
 
-var _formulaFunction = __webpack_require__(24);
+var _formulaFunction = __webpack_require__(23);
 
 var _formulaFunction2 = _interopRequireDefault(_formulaFunction);
 
-var _greaterThan = __webpack_require__(33);
+var _greaterThan = __webpack_require__(31);
 
 var _greaterThan2 = _interopRequireDefault(_greaterThan);
 
-var _greaterThanOrEqual = __webpack_require__(34);
+var _greaterThanOrEqual = __webpack_require__(32);
 
 var _greaterThanOrEqual2 = _interopRequireDefault(_greaterThanOrEqual);
 
-var _lessThan = __webpack_require__(35);
+var _lessThan = __webpack_require__(33);
 
 var _lessThan2 = _interopRequireDefault(_lessThan);
 
-var _lessThanOrEqual = __webpack_require__(36);
+var _lessThanOrEqual = __webpack_require__(34);
 
 var _lessThanOrEqual2 = _interopRequireDefault(_lessThanOrEqual);
 
-var _minus = __webpack_require__(37);
+var _minus = __webpack_require__(35);
 
 var _minus2 = _interopRequireDefault(_minus);
 
-var _multiply = __webpack_require__(38);
+var _multiply = __webpack_require__(36);
 
 var _multiply2 = _interopRequireDefault(_multiply);
 
-var _notEqual = __webpack_require__(39);
+var _notEqual = __webpack_require__(37);
 
 var _notEqual2 = _interopRequireDefault(_notEqual);
 
-var _power = __webpack_require__(40);
+var _power = __webpack_require__(38);
 
 var _power2 = _interopRequireDefault(_power);
 
@@ -13006,7 +12044,7 @@ registerOperation(_notEqual2['default'].SYMBOL, _notEqual2['default']);
 registerOperation(_minus2['default'].SYMBOL, _minus2['default']);
 
 /***/ }),
-/* 20 */
+/* 19 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -13041,7 +12079,7 @@ function func(first) {
 func.SYMBOL = SYMBOL;
 
 /***/ }),
-/* 21 */
+/* 20 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -13064,7 +12102,7 @@ function func() {
 func.SYMBOL = SYMBOL;
 
 /***/ }),
-/* 22 */
+/* 21 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -13102,7 +12140,7 @@ function func(first) {
 func.SYMBOL = SYMBOL;
 
 /***/ }),
-/* 23 */
+/* 22 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -13119,7 +12157,7 @@ function func(exp1, exp2) {
 func.SYMBOL = SYMBOL;
 
 /***/ }),
-/* 24 */
+/* 23 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -13129,11 +12167,11 @@ exports.__esModule = true;
 exports.SYMBOL = undefined;
 exports['default'] = func;
 
-var _formulajs = __webpack_require__(25);
+var _formulajs = __webpack_require__(24);
 
 var formulajs = _interopRequireWildcard(_formulajs);
 
-var _supportedFormulas = __webpack_require__(14);
+var _supportedFormulas = __webpack_require__(13);
 
 var _supportedFormulas2 = _interopRequireDefault(_supportedFormulas);
 
@@ -13190,22 +12228,22 @@ func.isFactory = true;
 func.SYMBOL = SYMBOL;
 
 /***/ }),
-/* 25 */
+/* 24 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var categories = [
-  __webpack_require__(26),
-  __webpack_require__(29),
-  __webpack_require__(13),
-  __webpack_require__(30),
+  __webpack_require__(25),
+  __webpack_require__(27),
+  __webpack_require__(12),
+  __webpack_require__(28),
   __webpack_require__(4),
   __webpack_require__(6),
+  __webpack_require__(9),
+  __webpack_require__(29),
   __webpack_require__(8),
-  __webpack_require__(31),
-  __webpack_require__(7),
-  __webpack_require__(32),
+  __webpack_require__(30),
   __webpack_require__(5),
-  __webpack_require__(12)
+  __webpack_require__(11)
 ];
 
 for (var c in categories) {
@@ -13217,13 +12255,13 @@ for (var c in categories) {
 
 
 /***/ }),
-/* 26 */
+/* 25 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var mathTrig = __webpack_require__(4);
 var statistical = __webpack_require__(5);
-var engineering = __webpack_require__(13);
-var dateTime = __webpack_require__(8);
+var engineering = __webpack_require__(12);
+var dateTime = __webpack_require__(9);
 
 function set(fn, root) {
   if (root) {
@@ -13310,67 +12348,91 @@ exports.ZTEST = statistical.Z.TEST;
 
 
 /***/ }),
-/* 27 */
-/***/ (function(module, exports) {
-
-
-
-/***/ }),
-/* 28 */
+/* 26 */
 /***/ (function(module, exports, __webpack_require__) {
 
+/* bessel.js (C) 2013-present SheetJS -- http://sheetjs.com */
+/* vim: set ts=2: */
+/*exported BESSEL */
+var BESSEL;
+(function (factory) {
+  /*jshint ignore:start */
+  if(typeof DO_NOT_EXPORT_BESSEL === 'undefined') {
+    if(true) {
+      factory(exports);
+    } else if ('function' === typeof define && define.amd) {
+      define(function () {
+        var module = {};
+        factory(module);
+        return module;
+      });
+    } else {
+      factory(BESSEL = {});
+    }
+  } else {
+    factory(BESSEL = {});
+  }
+  /*jshint ignore:end */
+}(function(BESSEL) {
+BESSEL.version = '1.0.2';
 var M = Math;
-function _horner(arr, v) { return arr.reduce(function(z,w){return v * z + w;},0); };
+
+function _horner(arr, v) { for(var i = 0, z = 0; i < arr.length; ++i) z = v * z + arr[i]; return z; }
 function _bessel_iter(x, n, f0, f1, sign) {
-  if(!sign) sign = -1;
-  var tdx = 2 / x, f2;
   if(n === 0) return f0;
   if(n === 1) return f1;
-  for(var o = 1; o != n; ++o) {
+  var tdx = 2 / x, f2 = f1;
+  for(var o = 1; o < n; ++o) {
     f2 = f1 * o * tdx + sign * f0;
     f0 = f1; f1 = f2;
   }
-  return f1;
+  return f2;
 }
 function _bessel_wrap(bessel0, bessel1, name, nonzero, sign) {
   return function bessel(x,n) {
+    if(nonzero) {
+      if(x === 0) return (nonzero == 1 ? -Infinity : Infinity);
+      else if(x < 0) return NaN;
+    }
     if(n === 0) return bessel0(x);
     if(n === 1) return bessel1(x);
-    if(n < 0) throw name + ': Order (' + n + ') must be nonnegative';
-    if(nonzero == 1 && x === 0) throw name + ': Undefined when x == 0';
-    if(nonzero == 2 && x <= 0) throw name + ': Undefined when x <= 0';
+    if(n < 0) return NaN;
+    n|=0;
     var b0 = bessel0(x), b1 = bessel1(x);
     return _bessel_iter(x, n, b0, b1, sign);
   };
 }
 var besselj = (function() {
-  var b0_a1a = [57568490574.0,-13362590354.0,651619640.7,-11214424.18,77392.33017,-184.9052456].reverse();
-  var b0_a2a = [57568490411.0,1029532985.0,9494680.718,59272.64853,267.8532712,1.0].reverse();
-  var b0_a1b = [1.0, -0.1098628627e-2, 0.2734510407e-4, -0.2073370639e-5, 0.2093887211e-6].reverse();
-  var b0_a2b = [-0.1562499995e-1, 0.1430488765e-3, -0.6911147651e-5, 0.7621095161e-6, -0.934935152e-7].reverse();
   var W = 0.636619772; // 2 / Math.PI
 
+  var b0_a1a = [57568490574.0, -13362590354.0, 651619640.7, -11214424.18, 77392.33017, -184.9052456].reverse();
+  var b0_a2a = [57568490411.0, 1029532985.0, 9494680.718, 59272.64853, 267.8532712, 1.0].reverse();
+  var b0_a1b = [1.0, -0.1098628627e-2, 0.2734510407e-4, -0.2073370639e-5, 0.2093887211e-6].reverse();
+  var b0_a2b = [-0.1562499995e-1, 0.1430488765e-3, -0.6911147651e-5, 0.7621095161e-6, -0.934935152e-7].reverse();
+
   function bessel0(x) {
-    var a, a1, a2, y = x * x, xx = M.abs(x) - 0.785398164;
-    if(M.abs(x) < 8) {
+    var a=0, a1=0, a2=0, y = x * x;
+    if(x < 8) {
       a1 = _horner(b0_a1a, y);
       a2 = _horner(b0_a2a, y);
-      a = a1/a2;
-    }
-    else {
+      a = a1 / a2;
+    } else {
+      var xx = x - 0.785398164;
       y = 64 / y;
       a1 = _horner(b0_a1b, y);
       a2 = _horner(b0_a2b, y);
-      a = M.sqrt(W/M.abs(x))*(M.cos(xx)*a1-M.sin(xx)*a2*8/M.abs(x));
+      a = M.sqrt(W/x)*(M.cos(xx)*a1-M.sin(xx)*a2*8/x);
     }
     return a;
   }
-  var b1_a1a = [72362614232.0,-7895059235.0,242396853.1,-2972611.439, 15704.48260, -30.16036606].reverse();
+
+  var b1_a1a = [72362614232.0, -7895059235.0, 242396853.1, -2972611.439, 15704.48260, -30.16036606].reverse();
   var b1_a2a = [144725228442.0, 2300535178.0, 18583304.74, 99447.43394, 376.9991397, 1.0].reverse();
   var b1_a1b = [1.0, 0.183105e-2, -0.3516396496e-4, 0.2457520174e-5, -0.240337019e-6].reverse();
   var b1_a2b = [0.04687499995, -0.2002690873e-3, 0.8449199096e-5, -0.88228987e-6, 0.105787412e-6].reverse();
+
   function bessel1(x) {
-    var a, a1, a2, y = x*x, xx = M.abs(x) - 2.356194491;
+    var a=0, a1=0, a2=0, y = x*x, xx = M.abs(x) - 2.356194491;
     if(Math.abs(x)< 8) {
       a1 = x*_horner(b1_a1a, y);
       a2 = _horner(b1_a2a, y);
@@ -13384,22 +12446,26 @@ var besselj = (function() {
     }
     return a;
   }
+
   return function besselj(x, n) {
     n = Math.round(n);
-    if(n === 0) return bessel0(M.abs(x));
-    if(n === 1) return bessel1(M.abs(x));
-    if(n < 0) throw 'BESSELJ: Order (' + n + ') must be nonnegative';
-    if(M.abs(x) === 0) return 0;
+    if(!isFinite(x)) return isNaN(x) ? x : 0;
+    if(n < 0) return ((n%2)?-1:1)*besselj(x, -n);
+    if(x < 0) return ((n%2)?-1:1)*besselj(-x, n);
+    if(n === 0) return bessel0(x);
+    if(n === 1) return bessel1(x);
+    if(x === 0) return 0;
 
-    var ret, j, tox = 2 / M.abs(x), m, jsum, sum, bjp, bj, bjm;
-    if(M.abs(x) > n) {
-      ret = _bessel_iter(x, n, bessel0(M.abs(x)), bessel1(M.abs(x)),-1);
+    var ret=0.0;
+    if(x > n) {
+      ret = _bessel_iter(x, n, bessel0(x), bessel1(x),-1);
     } else {
-      m=2*M.floor((n+M.floor(M.sqrt(40*n)))/2);
-      jsum=0;
-      bjp=ret=sum=0.0;
-      bj=1.0;
-      for (j=m;j>0;j--) {
+      var m=2*M.floor((n+M.floor(M.sqrt(40*n)))/2);
+      var jsum=false;
+      var bjp=0.0, sum=0.0;
+      var bj=1.0, bjm = 0.0;
+      var tox = 2 / x;
+      for (var j=m;j>0;j--) {
         bjm=j*tox*bj-bjp;
         bjp=bj;
         bj=bjm;
@@ -13416,18 +12482,19 @@ var besselj = (function() {
       sum=2.0*sum-bj;
       ret /= sum;
     }
-    return x < 0 && (n%2) ? -ret : ret;
+    return ret;
   };
 })();
 var bessely = (function() {
+  var W = 0.636619772;
+
   var b0_a1a = [-2957821389.0, 7062834065.0, -512359803.6, 10879881.29, -86327.92757, 228.4622733].reverse();
   var b0_a2a = [40076544269.0, 745249964.8, 7189466.438, 47447.26470, 226.1030244, 1.0].reverse();
   var b0_a1b = [1.0, -0.1098628627e-2, 0.2734510407e-4, -0.2073370639e-5, 0.2093887211e-6].reverse();
   var b0_a2b = [-0.1562499995e-1, 0.1430488765e-3, -0.6911147651e-5, 0.7621095161e-6, -0.934945152e-7].reverse();
 
-  var W = 0.636619772;
   function bessel0(x) {
-    var a, a1, a2, y = x * x, xx = x - 0.785398164;
+    var a=0, a1=0, a2=0, y = x * x, xx = x - 0.785398164;
     if(x < 8) {
       a1 = _horner(b0_a1a, y);
       a2 = _horner(b0_a2a, y);
@@ -13445,8 +12512,9 @@ var bessely = (function() {
   var b1_a2a = [0.2499580570e14, 0.4244419664e12, 0.3733650367e10, 0.2245904002e8, 0.1020426050e6, 0.3549632885e3, 1].reverse();
   var b1_a1b = [1.0, 0.183105e-2, -0.3516396496e-4, 0.2457520174e-5, -0.240337019e-6].reverse();
   var b1_a2b = [0.04687499995, -0.2002690873e-3, 0.8449199096e-5, -0.88228987e-6, 0.105787412e-6].reverse();
+
   function bessel1(x) {
-    var a, a1, a2, y = x*x, xx = x - 2.356194491;
+    var a=0, a1=0, a2=0, y = x*x, xx = x - 2.356194491;
     if(x < 8) {
       a1 = x*_horner(b1_a1a, y);
       a2 = _horner(b1_a2a, y);
@@ -13465,6 +12533,7 @@ var bessely = (function() {
 var besseli = (function() {
   var b0_a = [1.0, 3.5156229, 3.0899424, 1.2067492, 0.2659732, 0.360768e-1, 0.45813e-2].reverse();
   var b0_b = [0.39894228, 0.1328592e-1, 0.225319e-2, -0.157565e-2, 0.916281e-2, -0.2057706e-1, 0.2635537e-1, -0.1647633e-1, 0.392377e-2].reverse();
+
   function bessel0(x) {
     if(x <= 3.75) return _horner(b0_a, x*x/(3.75*3.75));
     return M.exp(M.abs(x))/M.sqrt(M.abs(x))*_horner(b0_b, 3.75/M.abs(x));
@@ -13472,6 +12541,7 @@ var besseli = (function() {
 
   var b1_a = [0.5, 0.87890594, 0.51498869, 0.15084934, 0.2658733e-1, 0.301532e-2, 0.32411e-3].reverse();
   var b1_b = [0.39894228, -0.3988024e-1, -0.362018e-2, 0.163801e-2, -0.1031555e-1, 0.2282967e-1, -0.2895312e-1, 0.1787654e-1, -0.420059e-2].reverse();
+
   function bessel1(x) {
     if(x < 3.75) return x * _horner(b1_a, x*x/(3.75*3.75));
     return (x < 0 ? -1 : 1) * M.exp(M.abs(x))/M.sqrt(M.abs(x))*_horner(b1_b, 3.75/M.abs(x));
@@ -13480,14 +12550,13 @@ var besseli = (function() {
   return function besseli(x, n) {
     n = Math.round(n);
     if(n === 0) return bessel0(x);
-    if(n == 1) return bessel1(x);
-    if(n < 0) throw 'BESSELI Order (' + n + ') must be nonnegative';
+    if(n === 1) return bessel1(x);
+    if(n < 0) return NaN;
     if(M.abs(x) === 0) return 0;
+    if(x == Infinity) return Infinity;
 
-    var ret, j, tox = 2 / M.abs(x), m, bip, bi, bim;
-    m=2*M.round((n+M.round(M.sqrt(40*n)))/2);
-    bip=ret=0.0;
-    bi=1.0;
+    var ret = 0.0, j, tox = 2 / M.abs(x), bip = 0.0, bi=1.0, bim=0.0;
+    var m=2*M.round((n+M.round(M.sqrt(40*n)))/2);
     for (j=m;j>0;j--) {
       bim=j*tox*bi + bip;
       bip=bi; bi=bim;
@@ -13507,37 +12576,38 @@ var besseli = (function() {
 var besselk = (function() {
   var b0_a = [-0.57721566, 0.42278420, 0.23069756, 0.3488590e-1, 0.262698e-2, 0.10750e-3, 0.74e-5].reverse();
   var b0_b = [1.25331414, -0.7832358e-1, 0.2189568e-1, -0.1062446e-1, 0.587872e-2, -0.251540e-2, 0.53208e-3].reverse();
+
   function bessel0(x) {
-    if(x <= 2) return -M.log(x/2)*besseli(x,0) + _horner(b0_a, x*x/4);
-    return M.exp(-x)/M.sqrt(x)*_horner(b0_b, 2/x);
+    if(x <= 2) return -M.log(x/2) * besseli(x,0) + _horner(b0_a, x*x/4);
+    return M.exp(-x) / M.sqrt(x) * _horner(b0_b, 2/x);
   }
 
   var b1_a = [1.0, 0.15443144, -0.67278579, -0.18156897, -0.1919402e-1, -0.110404e-2, -0.4686e-4].reverse();
   var b1_b = [1.25331414, 0.23498619, -0.3655620e-1, 0.1504268e-1, -0.780353e-2, 0.325614e-2, -0.68245e-3].reverse();
+
   function bessel1(x) {
-    if(x <= 2) return M.log(x/2)*besseli(x,1) + (1/x)*_horner(b1_a, x*x/4);
+    if(x <= 2) return M.log(x/2) * besseli(x,1) + (1/x) * _horner(b1_a, x*x/4);
     return M.exp(-x)/M.sqrt(x)*_horner(b1_b, 2/x);
   }
 
   return _bessel_wrap(bessel0, bessel1, 'BESSELK', 2, 1);
 })();
-if(true) {
-  exports.besselj = besselj;
-  exports.bessely = bessely;
-  exports.besseli = besseli;
-  exports.besselk = besselk;
-}
-
+BESSEL.besselj = besselj;
+BESSEL.bessely = bessely;
+BESSEL.besseli = besseli;
+BESSEL.besselk = besselk;
+}));
 
 
 /***/ }),
-/* 29 */
+/* 27 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var error = __webpack_require__(0);
 var stats = __webpack_require__(5);
 var maths = __webpack_require__(4);
 var utils = __webpack_require__(1);
+var evalExpression = __webpack_require__(7);
 
 function compact(array) {
   var result = [];
@@ -13597,7 +12667,18 @@ function findResultIndex(database, criterias) {
         }
         hasMatchingCriteria = true;
         for (var p = 1; p < criteria.length; ++p) {
-          currentCriteriaResult = currentCriteriaResult || eval(database[k][l] + criteria[p]);  // jshint ignore:line
+          if (!currentCriteriaResult) {
+            var isWildcard = criteria[p] === void 0 || criteria[p] === '*';
+
+            if (isWildcard) {
+              currentCriteriaResult = true;
+            } else {
+              var tokenizedCriteria = evalExpression.parse(criteria[p] + '');
+              var tokens = [evalExpression.createToken(database[k][l], evalExpression.TOKEN_TYPE_LITERAL)].concat(tokenizedCriteria);
+
+              currentCriteriaResult = evalExpression.compute(tokens);
+            }
+          }
         }
       }
       if (hasMatchingCriteria) {
@@ -13924,12 +13005,12 @@ exports.DVARP = function(database, field, criteria) {
 
 
 /***/ }),
-/* 30 */
+/* 28 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var error = __webpack_require__(0);
 var utils = __webpack_require__(1);
-var information = __webpack_require__(7);
+var information = __webpack_require__(8);
 
 exports.AND = function() {
   var args = utils.flatten(arguments);
@@ -14041,11 +13122,11 @@ exports.SWITCH = function () {
 
 
 /***/ }),
-/* 31 */
+/* 29 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var error = __webpack_require__(0);
-var dateTime = __webpack_require__(8);
+var dateTime = __webpack_require__(9);
 var utils = __webpack_require__(1);
 
 function validDate(d) {
@@ -15137,7 +14218,7 @@ exports.YIELDMAT = function() {
 
 
 /***/ }),
-/* 32 */
+/* 30 */
 /***/ (function(module, exports, __webpack_require__) {
 
 var error = __webpack_require__(0);
@@ -15218,7 +14299,7 @@ exports.VLOOKUP = function (needle, table, index, rangeLookup) {
   }
 
   return error.na;
-};      
+};
 
 exports.HLOOKUP = function (needle, table, index, rangeLookup) {
   if (!needle || !table || !index) {
@@ -15243,7 +14324,7 @@ exports.HLOOKUP = function (needle, table, index, rangeLookup) {
 
 
 /***/ }),
-/* 33 */
+/* 31 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -15260,7 +14341,7 @@ function func(exp1, exp2) {
 func.SYMBOL = SYMBOL;
 
 /***/ }),
-/* 34 */
+/* 32 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -15277,7 +14358,7 @@ function func(exp1, exp2) {
 func.SYMBOL = SYMBOL;
 
 /***/ }),
-/* 35 */
+/* 33 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -15294,7 +14375,7 @@ function func(exp1, exp2) {
 func.SYMBOL = SYMBOL;
 
 /***/ }),
-/* 36 */
+/* 34 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -15311,7 +14392,7 @@ function func(exp1, exp2) {
 func.SYMBOL = SYMBOL;
 
 /***/ }),
-/* 37 */
+/* 35 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -15346,7 +14427,7 @@ function func(first) {
 func.SYMBOL = SYMBOL;
 
 /***/ }),
-/* 38 */
+/* 36 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -15381,7 +14462,7 @@ function func(first) {
 func.SYMBOL = SYMBOL;
 
 /***/ }),
-/* 39 */
+/* 37 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -15398,7 +14479,7 @@ function func(exp1, exp2) {
 func.SYMBOL = SYMBOL;
 
 /***/ }),
-/* 40 */
+/* 38 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -15427,10 +14508,10 @@ function func(exp1, exp2) {
 func.SYMBOL = SYMBOL;
 
 /***/ }),
-/* 41 */
+/* 39 */
 /***/ (function(module, exports, __webpack_require__) {
 
-/* WEBPACK VAR INJECTION */(function(module, process) {/* parser generated by jison 0.4.17 */
+/* parser generated by jison 0.4.18 */
 /*
   Returns a Parser object of the following structure:
 
@@ -15505,7 +14586,7 @@ func.SYMBOL = SYMBOL;
 */
 var grammarParser = (function(){
 var o=function(k,v,o,l){for(o=o||{},l=k.length;l--;o[k[l]]=v);return o},$V0=[1,5],$V1=[1,8],$V2=[1,6],$V3=[1,7],$V4=[1,9],$V5=[1,14],$V6=[1,15],$V7=[1,16],$V8=[1,12],$V9=[1,13],$Va=[1,17],$Vb=[1,19],$Vc=[1,20],$Vd=[1,21],$Ve=[1,22],$Vf=[1,23],$Vg=[1,24],$Vh=[1,25],$Vi=[1,26],$Vj=[1,27],$Vk=[1,28],$Vl=[5,9,10,11,13,14,15,16,17,18,19,20,29,30],$Vm=[5,9,10,11,13,14,15,16,17,18,19,20,29,30,32],$Vn=[5,9,10,11,13,14,15,16,17,18,19,20,29,30,34],$Vo=[5,10,11,13,14,15,16,17,29,30],$Vp=[5,10,13,14,15,16,29,30],$Vq=[5,10,11,13,14,15,16,17,18,19,29,30],$Vr=[13,29,30];
-var parser = {trace: function trace() { },
+var parser = {trace: function trace () { },
 yy: {},
 symbols_: {"error":2,"expressions":3,"expression":4,"EOF":5,"variableSequence":6,"number":7,"STRING":8,"&":9,"=":10,"+":11,"(":12,")":13,"<":14,">":15,"NOT":16,"-":17,"*":18,"/":19,"^":20,"FUNCTION":21,"expseq":22,"cell":23,"ABSOLUTE_CELL":24,"RELATIVE_CELL":25,"MIXED_CELL":26,":":27,"ARRAY":28,";":29,",":30,"VARIABLE":31,"DECIMAL":32,"NUMBER":33,"%":34,"ERROR":35,"$accept":0,"$end":1},
 terminals_: {5:"EOF",8:"STRING",9:"&",10:"=",11:"+",12:"(",13:")",14:"<",15:">",16:"NOT",17:"-",18:"*",19:"/",20:"^",21:"FUNCTION",24:"ABSOLUTE_CELL",25:"RELATIVE_CELL",26:"MIXED_CELL",27:":",28:"ARRAY",29:";",30:",",31:"VARIABLE",32:"DECIMAL",33:"NUMBER",34:"%",35:"ERROR"},
@@ -15654,14 +14735,7 @@ case 38: case 42:
 break;
 case 39:
 
-      var result = [];
-      var arr = eval("[" + yytext + "]");
-
-      arr.forEach(function(item) {
-        result.push(item);
-      });
-
-      this.$ = result;
+      this.$ = yy.trimEdges(yytext).split(',');
 
 break;
 case 40: case 41:
@@ -15700,20 +14774,16 @@ break;
 },
 table: [{2:11,3:1,4:2,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{1:[3]},{5:[1,18],9:$Vb,10:$Vc,11:$Vd,14:$Ve,15:$Vf,16:$Vg,17:$Vh,18:$Vi,19:$Vj,20:$Vk},o($Vl,[2,2],{32:[1,29]}),o($Vl,[2,3],{34:[1,30]}),o($Vl,[2,4]),{2:11,4:31,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{2:11,4:32,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{2:11,4:33,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{12:[1,34]},o($Vl,[2,23]),o($Vl,[2,24],{2:35,35:$Va}),o($Vm,[2,42]),o($Vn,[2,44],{32:[1,36]}),o($Vl,[2,26],{27:[1,37]}),o($Vl,[2,27],{27:[1,38]}),o($Vl,[2,28],{27:[1,39]}),o([5,9,10,11,13,14,15,16,17,18,19,20,29,30,35],[2,47]),{1:[2,1]},{2:11,4:40,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{2:11,4:41,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{2:11,4:42,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{2:11,4:45,6:3,7:4,8:$V0,10:[1,43],11:$V1,12:$V2,15:[1,44],17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{2:11,4:47,6:3,7:4,8:$V0,10:[1,46],11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{2:11,4:48,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{2:11,4:49,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{2:11,4:50,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{2:11,4:51,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{2:11,4:52,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{31:[1,53]},o($Vn,[2,46]),{9:$Vb,10:$Vc,11:$Vd,13:[1,54],14:$Ve,15:$Vf,16:$Vg,17:$Vh,18:$Vi,19:$Vj,20:$Vk},o($Vo,[2,19],{9:$Vb,18:$Vi,19:$Vj,20:$Vk}),o($Vo,[2,20],{9:$Vb,18:$Vi,19:$Vj,20:$Vk}),{2:11,4:57,6:3,7:4,8:$V0,11:$V1,12:$V2,13:[1,55],17:$V3,21:$V4,22:56,23:10,24:$V5,25:$V6,26:$V7,28:[1,58],31:$V8,33:$V9,35:$Va},o($Vl,[2,25]),{33:[1,59]},{24:[1,60],25:[1,61],26:[1,62]},{24:[1,63],25:[1,64],26:[1,65]},{24:[1,66],25:[1,67],26:[1,68]},o($Vl,[2,5]),o([5,10,13,29,30],[2,6],{9:$Vb,11:$Vd,14:$Ve,15:$Vf,16:$Vg,17:$Vh,18:$Vi,19:$Vj,20:$Vk}),o($Vo,[2,7],{9:$Vb,18:$Vi,19:$Vj,20:$Vk}),{2:11,4:69,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{2:11,4:70,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},o($Vp,[2,14],{9:$Vb,11:$Vd,17:$Vh,18:$Vi,19:$Vj,20:$Vk}),{2:11,4:71,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},o($Vp,[2,13],{9:$Vb,11:$Vd,17:$Vh,18:$Vi,19:$Vj,20:$Vk}),o([5,10,13,16,29,30],[2,12],{9:$Vb,11:$Vd,14:$Ve,15:$Vf,17:$Vh,18:$Vi,19:$Vj,20:$Vk}),o($Vo,[2,15],{9:$Vb,18:$Vi,19:$Vj,20:$Vk}),o($Vq,[2,16],{9:$Vb,20:$Vk}),o($Vq,[2,17],{9:$Vb,20:$Vk}),o([5,10,11,13,14,15,16,17,18,19,20,29,30],[2,18],{9:$Vb}),o($Vm,[2,43]),o($Vl,[2,8]),o($Vl,[2,21]),{13:[1,72],29:[1,73],30:[1,74]},o($Vr,[2,38],{9:$Vb,10:$Vc,11:$Vd,14:$Ve,15:$Vf,16:$Vg,17:$Vh,18:$Vi,19:$Vj,20:$Vk}),o($Vr,[2,39]),o($Vn,[2,45]),o($Vl,[2,29]),o($Vl,[2,30]),o($Vl,[2,31]),o($Vl,[2,32]),o($Vl,[2,33]),o($Vl,[2,34]),o($Vl,[2,35]),o($Vl,[2,36]),o($Vl,[2,37]),o($Vp,[2,9],{9:$Vb,11:$Vd,17:$Vh,18:$Vi,19:$Vj,20:$Vk}),o($Vp,[2,11],{9:$Vb,11:$Vd,17:$Vh,18:$Vi,19:$Vj,20:$Vk}),o($Vp,[2,10],{9:$Vb,11:$Vd,17:$Vh,18:$Vi,19:$Vj,20:$Vk}),o($Vl,[2,22]),{2:11,4:75,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},{2:11,4:76,6:3,7:4,8:$V0,11:$V1,12:$V2,17:$V3,21:$V4,23:10,24:$V5,25:$V6,26:$V7,31:$V8,33:$V9,35:$Va},o($Vr,[2,40],{9:$Vb,10:$Vc,11:$Vd,14:$Ve,15:$Vf,16:$Vg,17:$Vh,18:$Vi,19:$Vj,20:$Vk}),o($Vr,[2,41],{9:$Vb,10:$Vc,11:$Vd,14:$Ve,15:$Vf,16:$Vg,17:$Vh,18:$Vi,19:$Vj,20:$Vk})],
 defaultActions: {18:[2,1]},
-parseError: function parseError(str, hash) {
+parseError: function parseError (str, hash) {
     if (hash.recoverable) {
         this.trace(str);
     } else {
-        function _parseError (msg, hash) {
-            this.message = msg;
-            this.hash = hash;
-        }
-        _parseError.prototype = Error;
-
-        throw new _parseError(str, hash);
+        var error = new Error(str);
+        error.hash = hash;
+        throw error;
     }
 },
-parse: function parse(input) {
+parse: function parse (input) {
     var self = this,
         stack = [0],
         tstack = [], // token stack
@@ -15763,6 +14833,7 @@ parse: function parse(input) {
         lstack.length = lstack.length - n;
     }
 
+_token_stack:
     var lex = function () {
         var token;
         token = lexer.lex() || EOF;
@@ -15789,6 +14860,7 @@ parse: function parse(input) {
             action = table[state] && table[state][symbol];
         }
 
+_handle_error:
         // handle parse error
         if (typeof action === 'undefined' || !action.length || !action[0]) {
             var error_rule_depth;
@@ -16092,7 +15164,7 @@ showPosition:function () {
     },
 
 // test the lexed token: return FALSE when not a match, otherwise return token
-test_match:function (match, indexed_rule) {
+test_match:function(match, indexed_rule) {
         var token,
             lines,
             backup;
@@ -16222,7 +15294,7 @@ next:function () {
     },
 
 // return next match that has a token
-lex:function lex() {
+lex:function lex () {
         var r = this.next();
         if (r) {
             return r;
@@ -16232,12 +15304,12 @@ lex:function lex() {
     },
 
 // activates a new lexer condition state (pushes the new lexer condition state onto the condition stack)
-begin:function begin(condition) {
+begin:function begin (condition) {
         this.conditionStack.push(condition);
     },
 
 // pop the previously active lexer condition state off the condition stack
-popState:function popState() {
+popState:function popState () {
         var n = this.conditionStack.length - 1;
         if (n > 0) {
             return this.conditionStack.pop();
@@ -16247,7 +15319,7 @@ popState:function popState() {
     },
 
 // produce the lexer rule set which is active for the currently active lexer condition state
-_currentRules:function _currentRules() {
+_currentRules:function _currentRules () {
         if (this.conditionStack.length && this.conditionStack[this.conditionStack.length - 1]) {
             return this.conditions[this.conditionStack[this.conditionStack.length - 1]].rules;
         } else {
@@ -16256,7 +15328,7 @@ _currentRules:function _currentRules() {
     },
 
 // return the currently active lexer condition state; when an index argument is provided it produces the N-th previous condition state, if available
-topState:function topState(n) {
+topState:function topState (n) {
         n = this.conditionStack.length - 1 - Math.abs(n || 0);
         if (n >= 0) {
             return this.conditionStack[n];
@@ -16266,7 +15338,7 @@ topState:function topState(n) {
     },
 
 // alias for begin(condition)
-pushState:function pushState(condition) {
+pushState:function pushState (condition) {
         this.begin(condition);
     },
 
@@ -16372,43 +15444,11 @@ if (true) {
 exports.parser = grammarParser;
 exports.Parser = grammarParser.Parser;
 exports.parse = function () { return grammarParser.parse.apply(grammarParser, arguments); };
-if (typeof module !== 'undefined' && __webpack_require__.c[__webpack_require__.s] === module) {
-  exports.main(process.argv.slice(1));
 }
-}
-
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(42)(module), __webpack_require__(10)))
-
-/***/ }),
-/* 42 */
-/***/ (function(module, exports) {
-
-module.exports = function(module) {
-	if(!module.webpackPolyfill) {
-		module.deprecate = function() {};
-		module.paths = [];
-		// module.parent = undefined by default
-		if(!module.children) module.children = [];
-		Object.defineProperty(module, "loaded", {
-			enumerable: true,
-			get: function() {
-				return module.l;
-			}
-		});
-		Object.defineProperty(module, "id", {
-			enumerable: true,
-			get: function() {
-				return module.i;
-			}
-		});
-		module.webpackPolyfill = 1;
-	}
-	return module;
-};
 
 
 /***/ }),
-/* 43 */
+/* 40 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
