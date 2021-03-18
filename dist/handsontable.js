@@ -1,27 +1,27 @@
 /*!
  * Copyright (c) Handsoncode sp. z o.o.
- *
+ * 
  * This Handsontable Pro is a commercial software distributed by Handsoncode sp. z o. o., a limited liability
  * company registered under the laws of Poland, with its registered office in Gdynia, Poland, at 96/98 Aleja Zwycięstwa,
  * postal code 81-451, entered into the Entrepreneurs Register of the National Court Register under number 0000538651,
  * share capital: PLN 62,800.00., hereinafter referred to as "HANDSONCODE".
- *
+ * 
  * By installing, copying, or otherwise using this software, you agree to be bound by the terms
  * of its General Software License Terms ("Terms") outlined in a file "handsontable-pro-general-terms.pdf"
  * available in the main directory of the software repository.
  * This software is copyrighted and protected by copyright laws and international treaties.
- *
+ * 
  * You shall obtain a commercial license for this software at handsontable.com.
- *
+ * 
  * YOU EXPRESSLY ACKNOWLEDGE AND AGREE THAT USE OF THE SOFTWARE IS AT YOUR OWN RISK AND THAT THE SOFTWARE
  * IS PROVIDED "AS IS" WITHOUT ANY WARRANTIES OR CONDITIONS WHATSOEVER. HANDSONCODE EXPRESSLY DISCLAIMS ANY WARRANTY,
  * EXPRESS OR IMPLIED, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF MERCHANTABILITY,
  * FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGMENT. HANDSONCODE DOES NOT WARRANT THAT THE SOFTWARE AND ITS FUNCTIONALITY,
  * RELIABILITY AND PERFORMANCE WILL MEET YOUR REQUIREMENTS OR THAT THE OPERATION OF THE SOFTWARE WILL BE
  * UNINTERRUPTED OR ERROR FREE.
- *
+ * 
  * Version: 6.2.2
- * Release date: 19/12/2018 (built at 12/02/2020 12:17:40)
+ * Release date: 19/12/2018 (built at 18/03/2021 16:25:42)
  */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
@@ -20363,10 +20363,8 @@ var ws = __webpack_require__(115);
 var hex = /^[-+]?0[xX]/;
 
 module.exports = $parseInt(ws + '08') !== 8 || $parseInt(ws + '0x16') !== 22 ? function parseInt(str, radix) {
-  return $parseInt(str, radix);
-  // Work around for core-js override native parseInt function until we upgrade Handsontable.
-  // var string = $trim(String(str), 3);
-  // return $parseInt(string, (radix >>> 0) || (hex.test(string) ? 16 : 10));
+  var string = $trim(String(str), 3);
+  return $parseInt(string, (radix >>> 0) || (hex.test(string) ? 16 : 10));
 } : $parseInt;
 
 
@@ -39706,7 +39704,7 @@ Handsontable.DefaultSettings = _defaultSettings.default;
 Handsontable.EventManager = _eventManager.default;
 Handsontable._getListenersCounter = _eventManager.getListenersCounter; // For MemoryLeak tests
 
-Handsontable.buildDate = "12/02/2020 12:17:40";
+Handsontable.buildDate = "18/03/2021 16:25:42";
 Handsontable.packageName = "handsontable-pro";
 Handsontable.version = "6.2.2";
 var baseVersion = "git://github.com/jeremy-smith-maco/handsontable.git";
@@ -83055,6 +83053,14 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 
 function _typeof(obj) { if (typeof Symbol === "function" && typeof Symbol.iterator === "symbol") { _typeof = function _typeof(obj) { return typeof obj; }; } else { _typeof = function _typeof(obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; }; } return _typeof(obj); }
 
+function _toConsumableArray(arr) { return _arrayWithoutHoles(arr) || _iterableToArray(arr) || _nonIterableSpread(); }
+
+function _nonIterableSpread() { throw new TypeError("Invalid attempt to spread non-iterable instance"); }
+
+function _iterableToArray(iter) { if (Symbol.iterator in Object(iter) || Object.prototype.toString.call(iter) === "[object Arguments]") return Array.from(iter); }
+
+function _arrayWithoutHoles(arr) { if (Array.isArray(arr)) { for (var i = 0, arr2 = new Array(arr.length); i < arr.length; i++) { arr2[i] = arr[i]; } return arr2; } }
+
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 function _defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } }
@@ -83200,7 +83206,7 @@ function (_BaseUI) {
       var doTrimming = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : true;
       var rowsToTrim = [];
       (0, _array.arrayEach)(rows, function (elem) {
-        rowsToTrim = rowsToTrim.concat(_this3.collapseChildren(elem, false, false));
+        rowsToTrim.push.apply(rowsToTrim, _toConsumableArray(_this3.collapseChildren(elem, false, false)));
       });
 
       if (doTrimming) {
@@ -83434,7 +83440,7 @@ function (_BaseUI) {
       var doTrimming = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : true;
       var rowsToUntrim = [];
       (0, _array.arrayEach)(rows, function (elem) {
-        rowsToUntrim = rowsToUntrim.concat(_this9.expandChildren(elem, false, false));
+        rowsToUntrim.push.apply(rowsToUntrim, _toConsumableArray(_this9.expandChildren(elem, false, false)));
       });
 
       if (doTrimming) {
