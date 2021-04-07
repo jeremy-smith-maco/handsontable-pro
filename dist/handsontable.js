@@ -21,7 +21,7 @@
  * UNINTERRUPTED OR ERROR FREE.
  * 
  * Version: 6.2.2
- * Release date: 19/12/2018 (built at 18/03/2021 16:25:42)
+ * Release date: 19/12/2018 (built at 07/04/2021 10:36:03)
  */
 (function webpackUniversalModuleDefinition(root, factory) {
 	if(typeof exports === 'object' && typeof module === 'object')
@@ -23669,8 +23669,8 @@ function () {
             overlay = 'bottomLeft';
           }
 
-          if (overlay === 'top' && deltaY !== 0 || overlay === 'left' && deltaX !== 0 || overlay === 'bottom' && deltaY !== 0 || (overlay === 'topLeft' || overlay === 'bottomLeft') && (deltaY !== 0 || deltaX !== 0)) {
-            event.preventDefault();
+          if (overlay === 'top' && deltaY !== 0 || overlay === 'left' && deltaX !== 0 || overlay === 'bottom' && deltaY !== 0 || (overlay === 'topLeft' || overlay === 'bottomLeft') && (deltaY !== 0 || deltaX !== 0)) {// Cannot prevent default in passive event listener
+            // event.preventDefault();
           }
         }]);
       }
@@ -35131,7 +35131,7 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 /* eslint-disable no-unused-vars */
 
 /* eslint-enable no-unused-vars */
-_handsontable.default.baseVersion = "git://github.com/jeremy-smith-maco/handsontable.git";
+_handsontable.default.baseVersion = "github:jeremy-smith-maco/handsontable";
 var _default = _handsontable.default;
 exports.default = _default;
 
@@ -39704,10 +39704,10 @@ Handsontable.DefaultSettings = _defaultSettings.default;
 Handsontable.EventManager = _eventManager.default;
 Handsontable._getListenersCounter = _eventManager.getListenersCounter; // For MemoryLeak tests
 
-Handsontable.buildDate = "18/03/2021 16:25:42";
+Handsontable.buildDate = "07/04/2021 10:36:03";
 Handsontable.packageName = "handsontable-pro";
 Handsontable.version = "6.2.2";
-var baseVersion = "git://github.com/jeremy-smith-maco/handsontable.git";
+var baseVersion = "github:jeremy-smith-maco/handsontable";
 
 if (baseVersion) {
   Handsontable.baseVersion = baseVersion;
