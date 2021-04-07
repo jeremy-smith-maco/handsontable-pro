@@ -56,7 +56,7 @@
     "data-spreadsheet"
   ],
   "dependencies": {
-    "handsontable": "git://github.com/jeremy-smith-maco/handsontable.git",
+    "handsontable": "github:jeremy-smith-maco/handsontable",
     "hot-formula-parser": "^3.0.1",
     "moment": "2.20.1",
     "numbro": "^2.0.6",
