@@ -3244,7 +3244,7 @@ handlebars@^4.0.3:
 
 "handsontable@github:jeremy-smith-maco/handsontable":
   version "6.2.2"
-  resolved "git+ssh://git@github.com/jeremy-smith-maco/handsontable.git#30776deca9bbf05dbe0dd7c66e385d36b7bb5a33"
+  resolved "git+ssh://git@github.com/jeremy-smith-maco/handsontable.git#42f1af4d2408c5ae5d009b5e4712fc1e94276d99"
   dependencies:
     moment "2.29.4"
     numbro "^2.0.6"
